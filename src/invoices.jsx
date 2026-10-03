@@ -40,7 +40,8 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
   const ledgerRows = inPeriod.map((x) => {
     const impact = balanceImpact(x);
     running += impact;
-    const label = { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut }[x.kind];
+    const label = x.orderId && x.kind === "payment_out" ? t.refundToClient
+      : { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, order_charge: t.orderCharge }[x.kind];
     // One line per item, e.g. "Cotton shirts (24 × EGP 85)"
     const items = txItems(x);
     const desc = (x.kind === "purchase" || x.kind === "sale") && items.length

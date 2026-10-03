@@ -50,7 +50,7 @@ Module._load = function (request, ...rest) {
   await new Promise((r) => setTimeout(r, 1500));
   const call = (name, arg) => handlers[name]({ sender: {} }, arg);
 
-  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v3.sqlite")), "backup before upgrade");
+  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v4.sqlite")), "backup before upgrade");
   let cat = call("db-get-catalog");
   assert.equal(cat.length, 1);
   assert.equal(cat[0].type, "material");
@@ -105,13 +105,37 @@ Module._load = function (request, ...rest) {
   call("db-delete-catalog", "old1");
   assert.equal(call("db-get-transactions")[0].items[0].catalogId, null);
 
+  // client orders: the order and its ledger entries are saved and replaced together
+  call("db-upsert-party", { id: "cl", name: "Client", type: "client", phone: "" });
+  const order = { id: "ord1", date: "2026-10-04", clientId: "cl", title: "500 tees", status: "open", commissionMode: "cost_pct",
+    commissionScope: "order", commissionValue: 10, products: [{ id: "x", name: "Tee", quantity: 100 }], materials: [], costs: [], payments: [] };
+  call("db-upsert-order", { order, txs: [
+    { id: "ord1-pay-1", kind: "payment_in", date: "2026-10-04", partyId: "cl", total: 10000, paid: 10000, notes: "Order: 500 tees" },
+    { id: "ord1-cost-1", kind: "purchase", date: "2026-10-04", partyId: "pa", description: "Making", total: 3000, paid: 0 },
+  ] });
+  let ords = call("db-get-orders");
+  assert.equal(ords.length, 1);
+  assert.equal(ords[0].products[0].name, "Tee");
+  assert.equal(ords[0].commissionValue, 10);
+  assert.equal(call("db-get-transactions").filter((x) => x.orderId === "ord1").length, 2);
+  call("db-upsert-order", { order: { ...order, status: "delivered", deliveredDate: "2026-10-06", createdAt: ords[0].createdAt }, txs: [
+    { id: "ord1-charge", kind: "order_charge", date: "2026-10-06", partyId: "cl", total: 3300, paid: 0, commission: 300 },
+  ] });
+  const otx = call("db-get-transactions").filter((x) => x.orderId === "ord1");
+  assert.equal(otx.length, 1, "old order entries replaced");
+  assert.equal(otx[0].commission, 300);
+  assert.equal(call("db-get-orders")[0].status, "delivered");
+  call("db-delete-party", "cl");
+  assert.equal(call("db-get-orders").length, 0, "orders go with their client");
+  assert.equal(call("db-get-transactions").filter((x) => x.orderId).length, 0);
+
   call("settings-save", { stockWarnMin: "7", stockBlock: "0", stockBlockMin: "2" });
   const st = call("settings-get");
   assert.deepEqual([st.stockWarnMin, st.stockBlock, st.stockBlockMin], ["7", "0", "2"]);
 
   // reopen from disk: everything persisted with the v3 schema
   const again = new SQL.Database(fs.readFileSync(path.join(dir, "factory-ledger.sqlite")));
-  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 3);
+  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 4);
   assert.equal(again.exec("SELECT COUNT(*) FROM catalog_items")[0].values[0][0], 1);
 
   console.log("main process tests passed");

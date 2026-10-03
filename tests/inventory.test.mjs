@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { computeInventory, checkTake, stockStatus, inventoryTotals } from "../src/inventory.js";
 import { periodTotals } from "../src/analytics.js";
+import { orderCalc, orderTransactions, heldMaterials, heldFor } from "../src/orders.js";
+import { balanceImpact } from "../src/ui.jsx";
 
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: got ${a}, expected ${b}`);
 
@@ -90,4 +92,47 @@ assert.equal(stockStatus(catalog[2], 6, settings), "ok");
 const tt = inventoryTotals(catalog, inv, settings);
 assert.ok(tt.value > 0 && tt.outOf.some((c) => c.id === "zip"));
 
-console.log("inventory tests passed");
+// ---- client orders (brokering) ----
+const labels = { order: "Order", cost: "cost", commission: "commission", cost_material: "Materials", cost_making: "Making", cost_other: "Other" };
+const order = {
+  id: "o1", date: "2026-10-01", clientId: "cli", title: "Tees", status: "delivered", deliveredDate: "2026-10-10",
+  commissionMode: "cost_pct", commissionScope: "order", commissionValue: 10,
+  products: [{ id: "a", name: "Tee", quantity: 60, price: 200 }, { id: "b", name: "Pants", quantity: 40, price: 300 }],
+  materials: [{ id: "m", name: "Cotton", unit: "m", received: 100, used: 70, returned: 10 }],
+  costs: [{ id: "c1", type: "material", supplierId: "sup", amount: 6000, paid: 2000 }, { id: "c2", type: "making", supplierId: "", amount: 3000, paid: 0 }],
+  payments: [{ id: "p1", date: "2026-10-01", dir: "in", amount: 10000 }],
+};
+let oc = orderCalc(order);
+near(oc.cost, 9000, "order cost");
+near(oc.commission, 900, "10% of cost");
+near(oc.due, 9900, "total due");
+near(oc.balance, -100, "100 to return");
+near(orderCalc({ ...order, commissionMode: "price_pct" }).commission, (60 * 200 + 40 * 300) * 0.1, "10% of selling price");
+near(orderCalc({ ...order, commissionMode: "per_piece", commissionValue: 5 }).commission, 500, "5 per piece");
+// per product: 5% on tees, 20% on pants, cost shared by pieces (5400 / 3600)
+const perProd = { ...order, commissionScope: "product", products: [{ ...order.products[0], commissionValue: 5 }, { ...order.products[1], commissionValue: 20 }] };
+near(orderCalc(perProd).commission, 5400 * 0.05 + 3600 * 0.2, "per-product percentages");
+
+const otx = orderTransactions(order, labels);
+assert.equal(otx.length, 4);
+const clientBal = otx.filter((x) => x.partyId === "cli").reduce((s, x) => s + balanceImpact(x), 0);
+near(clientBal, -100, "client is owed 100 back");
+near(otx.filter((x) => x.partyId === "sup").reduce((s, x) => s + balanceImpact(x), 0), -4000, "supplier is owed 4000");
+assert.equal(otx.find((x) => x.id === "o1-cost-c2").paid, 3000, "cash cost is fully paid");
+assert.ok(otx.every((x) => x.orderId === "o1"));
+// only the commission is income; the 9000 spent is the client's money, not own purchases
+const pt = periodTotals(otx, computeInventory({ catalog, transactions: otx, productions: [], adjustments: [] }));
+near(pt.profit, 900, "profit is the commission");
+near(pt.purchases, 0, "order costs are not own purchases");
+near(pt.moneyIn, 10000, "cash in");
+near(pt.moneyOut, 5000, "cash out");
+assert.equal(orderTransactions({ ...order, status: "open" }, labels).some((x) => x.kind === "order_charge"), false, "no charge before delivery");
+// refund settles the client
+const settled = orderTransactions({ ...order, payments: [...order.payments, { id: "p2", date: "2026-10-11", dir: "out", amount: 100 }] }, labels);
+near(settled.filter((x) => x.partyId === "cli").reduce((s, x) => s + balanceImpact(x), 0), 0, "settled after refund");
+// client fabric: 100 received − 70 used − 10 returned = 20 kept; the next order uses 15 of it
+const held = heldMaterials([order, { id: "o2", clientId: "cli", materials: [{ name: "cotton", received: 0, used: 15, returned: 0 }] }]);
+near(heldFor(held, "cli")[0].qty, 5, "fabric held for the client");
+assert.equal(heldFor(heldMaterials([order], "o1"), "cli").length, 0);
+
+console.log("inventory and order tests passed");

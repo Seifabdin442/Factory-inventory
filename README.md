@@ -26,7 +26,7 @@ This opens the app in a window. Close the window to quit.
 ```
 npm run dist
 ```
-This creates a single file in the `release/` folder, e.g. `Factory-Ledger-Setup-1.3.0.exe`.
+This creates a single file in the `release/` folder, e.g. `Factory-Ledger-Setup-1.4.0.exe`.
 
 **That one file is everything your client needs.** Send it to them (USB drive, WhatsApp, email, Google Drive — anything).
 They just double-click it: no options screen, no questions — it installs the app, adds a "Factory Ledger" icon to
@@ -55,7 +55,7 @@ install everything and build the `.exe` on their servers — you only use a brow
    again to confirm.
 7. Wait 3–5 minutes for it to finish (green checkmark).
 8. Click into the finished run, scroll down to **Artifacts**, and download `factory-ledger-installer`.
-   Unzip it — inside is your one file, `Factory-Ledger-Setup-1.3.0.exe`. That's what you send to your
+   Unzip it — inside is your one file, `Factory-Ledger-Setup-1.4.0.exe`. That's what you send to your
    client.
 
 You only repeat this if you change the app later. Each run is free under GitHub's free-tier minutes.
@@ -121,8 +121,39 @@ Other things to know:
 - The tailoring cost entered in a production run is part of the product's cost. Don't also enter it as
   an Expense, or it will be counted twice.
 - Upgrading from 1.2 keeps all data; a copy of the old database is saved next to it as
-  `factory-ledger.before-v3.sqlite`. Existing catalog items start with zero stock — use **Adjust stock**
+  `factory-ledger.before-v3.sqlite` (or `before-v4`). Existing catalog items start with zero stock — use **Adjust stock**
   → *Opening stock* to enter what you already have.
+
+## Client orders — working as a broker (new in version 1.4)
+
+Use the **Client orders** page when you are the middleman between a client and a factory: the client
+pays money or hands over fabric, the factory makes the products, and you keep a commission.
+
+1. **New client order**: choose the client, name the order and list the products and pieces.
+2. **Commission**, chosen per order:
+   - a percentage of the order's cost, a percentage of the product's selling price, or a fixed amount
+     per piece;
+   - one value for the whole order, or a different value for each product.
+3. **Money from the client**: deposits and later payments, and anything you give back. These are not
+   sales — the money is held for the client.
+4. **Fabric from the client**: what he handed over, how much was used and how much was returned. It
+   stays his and never enters your own stock. Whatever is left stays with you for his next order and
+   is listed under "Clients' fabric you hold".
+5. **Order costs**: fabric bought for the order, the factory's charge, other costs. Pick the supplier
+   or factory and the amount goes on their account like any purchase (with what you paid so far); with
+   no supplier it counts as paid in cash.
+6. Tick **Order delivered** when the client receives the products. The total due (cost + commission) is
+   put on the client's account, and the order shows what he still owes or what is to be returned.
+
+How it shows up elsewhere:
+
+- Only the **commission** counts in your profit (in the month of delivery). The client's money and the
+  costs spent for him are left out of your sales and purchases; they do appear in money in / money out.
+- The client's and the factory's balances, statements of account and the aging report include the
+  order's entries. To change one of them, edit the order.
+- Costs are shared between an order's products by number of pieces.
+- In "percentage of selling price" mode, the client is still charged cost + commission; the selling
+  price is only what the percentage is calculated on.
 
 ## For developers
 
@@ -173,7 +204,7 @@ No internet → nothing happens, the app works as normal.
 
 **Every time you want to send out an update**
 
-1. In `package.json`, increase `"version"` (e.g. `1.3.0` → `1.3.1`). Updates only go out when this
+1. In `package.json`, increase `"version"` (e.g. `1.4.0` → `1.4.1`). Updates only go out when this
    number goes up — the release workflow stops with a clear message if you forget.
 2. Upload the changed files to GitHub as usual and commit.
 3. **Actions** tab → **Release (auto-update)** → **Run workflow**. It builds the installer and publishes

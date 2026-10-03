@@ -28,6 +28,7 @@ export function makeReportSheets(ctx) {
         [`${t.totalSales} (${t.invoiced})`, s.sales],
         [`${t.totalPurchases} (${t.invoiced})`, s.purchases],
         [t.cogs, { v: s.cogs, tone: "out" }],
+        [t.commissionIncome, { v: s.commission, tone: "in" }],
         [t.expensesTotal, { v: s.expenses, tone: "out" }],
         [`${t.estimatedProfit} (${t.profitHint})`, { v: s.profit, tone: s.profit >= 0 ? "in" : "out" }],
         [`${t.outstandingReceivables} (${t.snapshot})`, { v: totalReceivable, tone: "in" }],
@@ -37,7 +38,8 @@ export function makeReportSheets(ctx) {
   }
 
   function trade(kind, mk) {
-    const list = monthTx(mk).filter((x) => x.kind === kind).sort(byDate);
+    // Money spent on clients' orders is not part of own purchases.
+    const list = monthTx(mk).filter((x) => x.kind === kind && !x.orderId).sort(byDate);
     const title = kind === "sale" ? t.salesReportTitle : t.purchasesReportTitle;
     return {
       name: title, rtl: isRTL, landscape: true, topLines: top(`${title} — ${mk}`), emptyText: t.noData,

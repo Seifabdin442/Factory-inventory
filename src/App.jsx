@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Package, ShoppingCart, Users, BarChart3, Globe, X, Wallet, Scissors, FileText, Settings, Info,
-  Receipt, Boxes, Keyboard, RefreshCw, Factory, Warehouse,
+  Receipt, Boxes, Keyboard, RefreshCw, Factory, Warehouse, Handshake,
 } from "lucide-react";
 import { T, fill } from "./i18n.js";
 import {
@@ -20,6 +20,8 @@ import { AuthScreen } from "./auth.jsx";
 import { computeInventory } from "./inventory.js";
 import { InventoryView, AdjustModal, StockHistoryModal } from "./stock.jsx";
 import { ProductionView, ProductionModal } from "./production.jsx";
+import { orderTransactions } from "./orders.js";
+import { OrdersView, OrderModal } from "./orders.jsx";
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -34,6 +36,7 @@ export default function FactoryLedger() {
   const [catalog, setCatalog] = useState([]);
   const [productions, setProductions] = useState([]);
   const [adjustments, setAdjustments] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [settings, setSettings] = useState({});
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("dashboard");
@@ -50,6 +53,7 @@ export default function FactoryLedger() {
   const [catalogModal, setCatalogModal] = useState(null); // { edit? }
   const [prodModal, setProdModal] = useState(null); // { editId? }
   const [adjustModal, setAdjustModal] = useState(null); // { item? }
+  const [orderModal, setOrderModal] = useState(null); // { editId? }
   const [historyItem, setHistoryItem] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null); // { kind:'tx'|'party'|'catalog'|'production'|'adjustment', id }
   const [search, setSearch] = useState("");
@@ -90,12 +94,13 @@ export default function FactoryLedger() {
     if (!loggedIn) return;
     (async () => {
       try {
-        const [p, tx, st, cat, prods, adjs] = await Promise.all([
+        const [p, tx, st, cat, prods, adjs, ords] = await Promise.all([
           window.db.getParties(), window.db.getTransactions(),
           window.settings ? window.settings.get() : Promise.resolve({}),
           window.db.getCatalog ? window.db.getCatalog() : Promise.resolve([]),
-          window.db.getProductions(), window.db.getAdjustments(),
+          window.db.getProductions(), window.db.getAdjustments(), window.db.getOrders(),
         ]);
+        setOrders(ords || []);
         setProductions(prods || []);
         setAdjustments(adjs || []);
         setParties(p || []);
@@ -129,6 +134,7 @@ export default function FactoryLedger() {
     setCatalog([]);
     setProductions([]);
     setAdjustments([]);
+    setOrders([]);
     setTab("dashboard");
   }
 
@@ -219,13 +225,36 @@ export default function FactoryLedger() {
     }, editId);
   }
 
+  // A client order owns its ledger entries: they are rebuilt from the order every time it is saved.
+  function saveOrder(order, newClientName) {
+    const full = newClientName ? { ...order, clientId: findOrCreateParty(newClientName, "client").id } : order;
+    const txs = orderTransactions(full, {
+      order: t.orderWord, cost: t.orderCost, commission: t.commission,
+      cost_material: t.cost_material, cost_making: t.cost_making, cost_other: t.cost_other,
+    });
+    setOrders((prev) => [full, ...prev.filter((o) => o.id !== full.id)]
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : String(b.createdAt).localeCompare(String(a.createdAt)))));
+    setTransactions((prev) => [...txs, ...prev.filter((x) => x.orderId !== full.id)]
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)));
+    reportSave(window.db.upsertOrder(full, txs));
+  }
+  function deleteOrder(id) {
+    setOrders((prev) => prev.filter((o) => o.id !== id));
+    setTransactions((prev) => prev.filter((x) => x.orderId !== id));
+    reportDelete(window.db.deleteOrder(id));
+  }
+
   function deleteTransaction(id) {
+    const tx = transactions.find((x) => x.id === id);
+    if (tx && tx.orderId) { notify(t.orderOwnedTx, "error"); return; }
     setTransactions((prev) => prev.filter((x) => x.id !== id));
     reportDelete(window.db.deleteTransaction(id));
   }
   function deleteParty(id) {
+    const gone = new Set(orders.filter((o) => o.clientId === id).map((o) => o.id));
+    setOrders((prev) => prev.filter((o) => !gone.has(o.id)));
     setParties((prev) => prev.filter((p) => p.id !== id));
-    setTransactions((prev) => prev.filter((x) => x.partyId !== id));
+    setTransactions((prev) => prev.filter((x) => x.partyId !== id && !gone.has(x.orderId)));
     reportDelete(window.db.deleteParty(id));
   }
   function saveCatalogItems(items) {
@@ -315,6 +344,7 @@ export default function FactoryLedger() {
     { key: "purchases", label: t.purchases, icon: Package },
     { key: "production", label: t.production, icon: Factory },
     { key: "sales", label: t.sales, icon: ShoppingCart },
+    { key: "orders", label: t.orders, icon: Handshake },
     { key: "inventory", label: t.inventory, icon: Warehouse },
     { key: "expenses", label: t.expenses, icon: Receipt },
     { key: "parties", label: t.parties, icon: Users },
@@ -334,6 +364,7 @@ export default function FactoryLedger() {
     else if (tab === "parties") setPartyModal(true);
     else if (tab === "catalog") setCatalogModal({});
     else if (tab === "production") setProdModal({});
+    else if (tab === "orders") setOrderModal({});
     else if (tab === "inventory") setAdjustModal({});
     else setTxModal({ kind: "sale" });
   }
@@ -393,7 +424,8 @@ export default function FactoryLedger() {
   const editingTx = txModal && txModal.editId ? transactions.find((x) => x.id === txModal.editId) : null;
   const editingExpense = expenseModal && expenseModal.editId ? transactions.find((x) => x.id === expenseModal.editId) : null;
   const editTx = (tx) => {
-    if (tx.kind === "expense") setExpenseModal({ editId: tx.id });
+    if (tx.orderId) { setPartyDetail(null); setOrderModal({ editId: tx.orderId }); }
+    else if (tx.kind === "expense") setExpenseModal({ editId: tx.id });
     else if (tx.kind === "purchase" || tx.kind === "sale") setTxModal({ kind: tx.kind, editId: tx.id });
     else { const p = parties.find((x) => x.id === tx.partyId); if (p) setPayModal({ party: p, editId: tx.id }); }
   };
@@ -475,7 +507,7 @@ export default function FactoryLedger() {
         {(tab === "purchases" || tab === "sales") && (() => {
           const kind = tab === "purchases" ? "purchase" : "sale";
           return (
-            <TxList key={kind} t={t} lang={lang} kind={kind} transactions={transactions.filter((x) => x.kind === kind)}
+            <TxList key={kind} t={t} lang={lang} kind={kind} transactions={transactions.filter((x) => x.kind === kind && !x.orderId)}
               parties={parties} onAdd={() => setTxModal({ kind })}
               onDelete={(id) => setConfirmDel({ kind: "tx", id })} onEdit={editTx}
               search={search} setSearch={setSearch} range={ranges[kind]} setRange={setRange(kind)} />
@@ -491,6 +523,11 @@ export default function FactoryLedger() {
             onAdd={() => setProdModal({})} onEdit={(r) => setProdModal({ editId: r.id })}
             onDelete={(id) => setConfirmDel({ kind: "production", id })}
             search={search} setSearch={setSearch} range={ranges.production} setRange={setRange("production")} />
+        )}
+        {tab === "orders" && (
+          <OrdersView t={t} lang={lang} orders={orders} parties={parties} search={search} setSearch={setSearch}
+            onAdd={() => setOrderModal({})} onEdit={(o) => setOrderModal({ editId: o.id })}
+            onDelete={(id) => setConfirmDel({ kind: "order", id })} />
         )}
         {tab === "inventory" && (
           <InventoryView t={t} lang={lang} catalog={catalog} inv={inventory} settings={settings}
@@ -569,6 +606,12 @@ export default function FactoryLedger() {
           onGoCatalog={() => { setProdModal(null); goTab("catalog"); setCatalogModal({}); }}
           onSave={(run) => { saveProduction(run); setProdModal(null); }} />
       )}
+      {orderModal && (
+        <OrderModal t={t} lang={lang} parties={parties} catalog={catalog} orders={orders}
+          editOrder={orderModal.editId ? orders.find((o) => o.id === orderModal.editId) : null}
+          onClose={() => setOrderModal(null)}
+          onSave={(order, newClientName) => { saveOrder(order, newClientName); setOrderModal(null); }} />
+      )}
       {adjustModal && (
         <AdjustModal t={t} lang={lang} catalog={catalog} inv={inventory} item={adjustModal.item || null}
           onClose={() => setAdjustModal(null)}
@@ -600,6 +643,7 @@ export default function FactoryLedger() {
               if (confirmDel.kind === "tx") deleteTransaction(confirmDel.id);
               else if (confirmDel.kind === "catalog") deleteCatalogItem(confirmDel.id);
               else if (confirmDel.kind === "production") deleteProduction(confirmDel.id);
+              else if (confirmDel.kind === "order") deleteOrder(confirmDel.id);
               else if (confirmDel.kind === "adjustment") deleteAdjustment(confirmDel.id);
               else { deleteParty(confirmDel.id); setPartyDetail(null); }
               setConfirmDel(null);

@@ -10,7 +10,7 @@ try { ({ autoUpdater } = require("electron-updater")); } catch (e) { autoUpdater
 
 let db = null;
 let mainWindow = null;
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function dbFilePath() {
   return path.join(app.getPath("userData"), "factory-ledger.sqlite");
@@ -93,6 +93,20 @@ function migrate() {
       salePrice REAL
     );
     CREATE INDEX IF NOT EXISTS idx_prod_lines ON production_lines(productionId);
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      clientId TEXT NOT NULL,
+      title TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      deliveredDate TEXT,
+      commissionMode TEXT,
+      commissionScope TEXT,
+      commissionValue REAL,
+      notes TEXT,
+      data TEXT,
+      createdAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS stock_adjustments (
       id TEXT PRIMARY KEY,
       date TEXT NOT NULL,
@@ -104,6 +118,11 @@ function migrate() {
       createdAt TEXT NOT NULL
     );
   `);
+  // v4: client orders (brokering). Every money movement of an order is a normal transaction that carries
+  // the order's id, so balances, statements and aging keep working without knowing about orders.
+  if (!columnExists("transactions", "orderId")) db.run("ALTER TABLE transactions ADD COLUMN orderId TEXT");
+  if (!columnExists("transactions", "commission")) db.run("ALTER TABLE transactions ADD COLUMN commission REAL");
+  db.run("CREATE INDEX IF NOT EXISTS idx_tx_order ON transactions(orderId)");
   db.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 
@@ -322,6 +341,8 @@ ipcMain.handle("db-upsert-party", (e, party) => {
 });
 
 ipcMain.handle("db-delete-party", (e, id) => {
+  db.run("DELETE FROM transactions WHERE orderId IN (SELECT id FROM orders WHERE clientId = ?)", [id]);
+  db.run("DELETE FROM orders WHERE clientId = ?", [id]);
   db.run("DELETE FROM transaction_items WHERE txId IN (SELECT id FROM transactions WHERE partyId = ?)", [id]);
   db.run("DELETE FROM transactions WHERE partyId = ?", [id]);
   db.run("DELETE FROM parties WHERE id = ?", [id]);
@@ -480,6 +501,59 @@ ipcMain.handle("db-upsert-production", (e, run) => {
 ipcMain.handle("db-delete-production", (e, id) => {
   db.run("DELETE FROM production_lines WHERE productionId = ?", [id]);
   db.run("DELETE FROM productions WHERE id = ?", [id]);
+  persist();
+  return { id };
+});
+
+/* ---- client orders: products made for a client by a factory, for a commission ----
+   The products, client fabric, costs and payments of an order are kept together as JSON in `data`.
+   `txs` are the ledger entries worked out from the order; they are replaced as a set on every save. */
+ipcMain.handle("db-get-orders", () =>
+  rowsFromQuery("SELECT * FROM orders ORDER BY date DESC, createdAt DESC").map((o) => {
+    let data = {};
+    try { data = JSON.parse(o.data || "{}"); } catch (err) { data = {}; }
+    return {
+      ...o, data: undefined,
+      products: data.products || [], materials: data.materials || [], costs: data.costs || [], payments: data.payments || [],
+    };
+  }));
+
+ipcMain.handle("db-upsert-order", (e, { order, txs }) => {
+  db.run("BEGIN");
+  try {
+    db.run(
+      `INSERT INTO orders (id,date,clientId,title,status,deliveredDate,commissionMode,commissionScope,commissionValue,notes,data,createdAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET date=excluded.date, clientId=excluded.clientId, title=excluded.title, status=excluded.status,
+         deliveredDate=excluded.deliveredDate, commissionMode=excluded.commissionMode, commissionScope=excluded.commissionScope,
+         commissionValue=excluded.commissionValue, notes=excluded.notes, data=excluded.data`,
+      [order.id, order.date, order.clientId, order.title || "", order.status === "delivered" ? "delivered" : "open",
+        order.deliveredDate || null, order.commissionMode || "cost_pct", order.commissionScope === "product" ? "product" : "order",
+        Number(order.commissionValue) || 0, order.notes || "",
+        JSON.stringify({ products: order.products || [], materials: order.materials || [], costs: order.costs || [], payments: order.payments || [] }),
+        order.createdAt || new Date().toISOString()]
+    );
+    db.run("DELETE FROM transactions WHERE orderId = ?", [order.id]);
+    for (const tx of txs || []) {
+      db.run(
+        `INSERT INTO transactions (id,kind,date,partyId,description,quantity,unitPrice,total,paid,notes,category,orderId,commission)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [tx.id, tx.kind, tx.date, tx.partyId || null, tx.description || "", tx.quantity || 0, tx.unitPrice || 0,
+          tx.total || 0, tx.paid || 0, tx.notes || "", null, order.id, Number(tx.commission) || 0]
+      );
+    }
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
+  persist();
+  return { id: order.id };
+});
+
+ipcMain.handle("db-delete-order", (e, id) => {
+  db.run("DELETE FROM transactions WHERE orderId = ?", [id]);
+  db.run("DELETE FROM orders WHERE id = ?", [id]);
   persist();
   return { id };
 });

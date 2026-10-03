@@ -17,20 +17,21 @@ const mono = "'JetBrains Mono', monospace";
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 export function kindLabel(t, kind) {
-  return { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, expense: t.expense }[kind];
+  return { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, expense: t.expense, order_charge: t.orderCharge }[kind];
 }
 
 /* ---------- one row in any list ---------- */
 export function TxRow({ tx, lang, t, last, partyName, onDelete, onEdit }) {
-  const isIn = tx.kind === "sale" || tx.kind === "payment_in";
+  const isCharge = tx.kind === "order_charge";
+  const isIn = tx.kind === "sale" || tx.kind === "payment_in" || isCharge;
   const isExpense = tx.kind === "expense";
   const isTrade = tx.kind === "sale" || tx.kind === "purchase";
   const Icon = isExpense ? Receipt : isIn ? ArrowUpCircle : ArrowDownCircle;
   const color = isIn ? COLORS.in : COLORS.out;
-  const label = kindLabel(t, tx.kind);
+  const label = tx.orderId && tx.kind === "payment_out" ? t.refundToClient : kindLabel(t, tx.kind);
   const itemCount = tx.items ? tx.items.length : 0;
   const head = isExpense ? t["cat_" + (tx.category || "other")] : (partyName || label);
-  const amount = isTrade ? tx.total : tx.paid;
+  const amount = isTrade || isCharge ? tx.total : tx.paid;
   const remaining = isTrade ? round2((tx.total || 0) - (tx.paid || 0)) : 0;
 
   return (
@@ -41,7 +42,7 @@ export function TxRow({ tx, lang, t, last, partyName, onDelete, onEdit }) {
       <Icon size={18} color={color} style={{ flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {head} {tx.description ? `— ${tx.description}` : ""}
+          {head} {tx.description ? `— ${tx.description}` : tx.orderId && tx.notes ? `— ${tx.notes}` : ""}
         </div>
         <div style={{ fontSize: 12, color: COLORS.muted, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <span>{tx.date} · {label}</span>

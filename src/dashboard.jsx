@@ -217,6 +217,7 @@ export function ReportsView({ t, lang, reportMonth, setReportMonth, transactions
         <MetricCard label={`${t.totalSales} (${t.invoiced})`} value={fmtMoney(s.sales, lang)} />
         <MetricCard label={`${t.totalPurchases} (${t.invoiced})`} value={fmtMoney(s.purchases, lang)} />
         <MetricCard label={t.cogs} value={fmtMoney(s.cogs, lang)} tone="out" />
+        <MetricCard label={t.commissionIncome} value={fmtMoney(s.commission, lang)} tone="in" />
         <MetricCard label={t.expensesTotal} value={fmtMoney(s.expenses, lang)} tone="out" />
         <MetricCard label={t.estimatedProfit} value={fmtMoney(s.profit, lang)} tone={s.profit >= 0 ? "in" : "out"} />
       </div>

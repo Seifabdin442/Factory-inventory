@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld("db", {
   upsertProduction: (run) => ipcRenderer.invoke("db-upsert-production", run),
   deleteProduction: (id) => ipcRenderer.invoke("db-delete-production", id),
 
+  getOrders: () => ipcRenderer.invoke("db-get-orders"),
+  upsertOrder: (order, txs) => ipcRenderer.invoke("db-upsert-order", { order, txs }),
+  deleteOrder: (id) => ipcRenderer.invoke("db-delete-order", id),
+
   getAdjustments: () => ipcRenderer.invoke("db-get-adjustments"),
   upsertAdjustment: (a) => ipcRenderer.invoke("db-upsert-adjustment", a),
   deleteAdjustment: (id) => ipcRenderer.invoke("db-delete-adjustment", id),

@@ -67,8 +67,10 @@ export const isMoneyOut = (x) => x.kind === "purchase" || x.kind === "payment_ou
 
 /*
  * Profit uses the real cost of what was sold (from the inventory replay), not what was bought:
- *   sales − cost of goods sold − purchases that don't go into stock − expenses
+ *   sales − cost of goods sold − purchases that don't go into stock − expenses + commission on client orders
  * Fabric bought this month but still on the shelf is stock, not a loss.
+ * Money spent on a client's order (entries with an orderId) is his, so it is left out of own purchases;
+ * only the commission charged when the order is delivered counts as income.
  */
 export function periodTotals(list, inv) {
   const sum = (f) => list.filter(f).reduce((s, x) => s + (Number(x.paid) || 0), 0);
@@ -76,22 +78,23 @@ export function periodTotals(list, inv) {
   const moneyIn = sum(isMoneyIn);
   const moneyOut = sum(isMoneyOut);
   const sales = sumTotal("sale");
-  const purchases = sumTotal("purchase");
+  const purchases = list.filter((x) => x.kind === "purchase" && !x.orderId).reduce((s, x) => s + (Number(x.total) || 0), 0);
+  const commission = list.filter((x) => x.kind === "order_charge").reduce((s, x) => s + (Number(x.commission) || 0), 0);
   const expenses = sumTotal("expense");
   let cogs = 0;
   let stockPurchases = 0;
   if (inv) {
     for (const x of list) {
       if (x.kind === "sale") cogs += inv.txCogs.get(x.id) || 0;
-      else if (x.kind === "purchase") {
+      else if (x.kind === "purchase" && !x.orderId) {
         for (const it of x.items || []) if (it.catalogId && inv.stock.has(it.catalogId)) stockPurchases += Number(it.total) || 0;
       }
     }
   }
   const otherPurchases = purchases - stockPurchases;
   return {
-    moneyIn, moneyOut, net: moneyIn - moneyOut, sales, purchases, expenses, cogs, stockPurchases, otherPurchases,
-    profit: sales - cogs - otherPurchases - expenses,
+    moneyIn, moneyOut, net: moneyIn - moneyOut, sales, purchases, expenses, cogs, stockPurchases, otherPurchases, commission,
+    profit: sales - cogs - otherPurchases - expenses + commission,
   };
 }
 
