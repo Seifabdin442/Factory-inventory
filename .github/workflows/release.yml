@@ -1,0 +1,45 @@
+name: Release (auto-update)
+
+# Builds the installer AND publishes it as a GitHub Release.
+# Every installed copy of the app checks these releases and updates itself.
+# Before running: increase "version" in package.json (e.g. 1.2.0 -> 1.2.1).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check the version number is new
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Version in package.json: $VERSION"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "::error::Version $VERSION was already released. Increase \"version\" in package.json (for example to the next number) and run this again."
+            exit 1
+          fi
+
+      - run: npm install
+
+      - name: Build and publish the release
+        run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: factory-ledger-installer
+          path: release/*.exe

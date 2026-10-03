@@ -1,0 +1,7 @@
+node_modules/
+dist/
+release/
+tests/.inventory.bundle.mjs
+.claude/
+*.sqlite
+*.log
