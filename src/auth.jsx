@@ -102,7 +102,7 @@ export function AuthScreen({ hasAdmin, lang, setLang, t, onCreated, onLoggedIn }
           if (res.recoveryCode) setPending({ code: res.recoveryCode, then: onCreated });
           else onCreated();
           if (res.recoveryCode) setMode("code");
-        } else setError(t.invalidCredentials);
+        } else setError(res && res.reason === "reserved" ? t.usernameTaken : t.invalidCredentials);
       } else if (mode === "login") {
         if (!username.trim() || !password) { setError(t.fillAllFields); return; }
         const res = await window.auth.login(username.trim(), password);

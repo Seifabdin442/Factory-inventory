@@ -17,7 +17,7 @@ app.setPath("userData", path.join(app.getPath("appData"), "factory-inventory"));
 
 let db = null;
 let mainWindow = null;
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function dbFilePath() {
   return path.join(app.getPath("userData"), "factory-ledger.sqlite");
@@ -130,6 +130,9 @@ function migrate() {
   if (!columnExists("transactions", "orderId")) db.run("ALTER TABLE transactions ADD COLUMN orderId TEXT");
   if (!columnExists("transactions", "commission")) db.run("ALTER TABLE transactions ADD COLUMN commission REAL");
   db.run("CREATE INDEX IF NOT EXISTS idx_tx_order ON transactions(orderId)");
+  // v5: the owner account is also kept as a row (role = 'owner') beside the customer's own account.
+  if (!columnExists("users", "role")) db.run("ALTER TABLE users ADD COLUMN role TEXT");
+  ensureOwnerRow();
   db.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 
@@ -259,6 +262,28 @@ ipcMain.handle("license-set", (e, { mode, days, contact }) => {
 
 ipcMain.handle("auth-logout", () => { ownerKey = null; return { ok: true }; });
 
+/* The owner's row is added quietly the moment the customer creates their own account (and put back at
+   start-up if it ever goes missing). Only the salted hash of the owner password is stored, never the
+   password. The row is a record: the password is always checked against owner.cjs, so removing or
+   editing the row neither locks the owner out nor lets anyone else in. */
+const isOwnerName = (username) => String(username || "").trim().toLowerCase() === String(owner.username).toLowerCase();
+
+function ensureOwnerRow() {
+  if (!rowsFromQuery("SELECT 1 FROM users WHERE role IS NULL OR role <> 'owner' LIMIT 1").length) return; // no customer account yet
+  const rows = rowsFromQuery("SELECT * FROM users WHERE role = 'owner'");
+  if (rows.length) {
+    if (rows[0].hash !== owner.hash || rows[0].salt !== owner.salt) {
+      db.run("UPDATE users SET salt = ?, hash = ? WHERE id = ?", [owner.salt, owner.hash, rows[0].id]);
+    }
+    return;
+  }
+  // An install from before this rule may already have a customer called "admin"; usernames are unique, so skip.
+  if (rowsFromQuery("SELECT 1 FROM users WHERE lower(username) = lower(?)", [owner.username]).length) return;
+  db.run("INSERT INTO users (id,username,salt,hash,createdAt,role) VALUES (?,?,?,?,?,'owner')", [
+    crypto.randomUUID(), owner.username, owner.salt, owner.hash, new Date().toISOString(),
+  ]);
+}
+
 /* ---- auth ---- */
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString("hex");
@@ -302,7 +327,7 @@ function setPassword(userId, password) {
 }
 
 function adminUser() {
-  const rows = rowsFromQuery("SELECT * FROM users ORDER BY createdAt LIMIT 1");
+  const rows = rowsFromQuery("SELECT * FROM users WHERE role IS NULL OR role <> 'owner' ORDER BY createdAt LIMIT 1");
   return rows[0] || null;
 }
 
@@ -320,22 +345,24 @@ function recordFail(kind) {
 function recordSuccess(kind) { attempts[kind] = { fails: 0, until: 0 }; }
 
 ipcMain.handle("auth-has-admin", () => {
-  const rows = rowsFromQuery("SELECT COUNT(*) as c FROM users");
+  const rows = rowsFromQuery("SELECT COUNT(*) as c FROM users WHERE role IS NULL OR role <> 'owner'");
   return rows[0] && rows[0].c > 0;
 });
 
 ipcMain.handle("auth-create-admin", (e, { username, password }) => {
-  const existing = rowsFromQuery("SELECT COUNT(*) as c FROM users");
+  const existing = rowsFromQuery("SELECT COUNT(*) as c FROM users WHERE role IS NULL OR role <> 'owner'");
   if (existing[0] && existing[0].c > 0) return { ok: false, reason: "exists" };
   // The owner can get in from the first-run screen too, without creating the customer's account.
   const key = license.checkOwner(owner, username, password);
   if (key) { ownerKey = key; return { ok: true, owner: true, username: owner.username }; }
+  if (isOwnerName(username)) return { ok: false, reason: "reserved" }; // that name belongs to the owner account
   const id = crypto.randomUUID();
   const salt = crypto.randomBytes(16).toString("hex");
   db.run("INSERT INTO users (id,username,salt,hash,createdAt) VALUES (?,?,?,?,?)", [
     id, username, salt, hashPassword(password, salt), new Date().toISOString(),
   ]);
   const recoveryCode = storeRecoveryCode(id);
+  ensureOwnerRow();
   persist();
   return { ok: true, recoveryCode };
 });
@@ -343,7 +370,7 @@ ipcMain.handle("auth-create-admin", (e, { username, password }) => {
 ipcMain.handle("auth-login", (e, { username, password }) => {
   const wait = lockedFor("login");
   if (wait) return { ok: false, reason: "locked", wait };
-  const rows = rowsFromQuery("SELECT * FROM users WHERE username = ?", [username]);
+  const rows = rowsFromQuery("SELECT * FROM users WHERE username = ? AND (role IS NULL OR role <> 'owner')", [username]);
   const user = rows[0];
   if (!user || !checkPassword(user, password)) {
     const key = license.checkOwner(owner, username, password);

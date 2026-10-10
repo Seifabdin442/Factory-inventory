@@ -35,6 +35,7 @@ Module._load = function (request, ...rest) {
 (async () => {
   const rowsCount = (table) => { const d = new SQL2.Database(fs.readFileSync(path.join(dir, "factory-ledger.sqlite"))); return d.exec(`SELECT COUNT(*) FROM ${table}`)[0].values[0][0]; };
   let SQL2;
+  const usersRows = () => { const d = new SQL2.Database(fs.readFileSync(path.join(dir, "factory-ledger.sqlite"))); const st = d.prepare("SELECT * FROM users"); const out = []; while (st.step()) out.push(st.getAsObject()); return out; };
   // A v2 database as written by version 1.2
   const SQL = await require("sql.js")({ locateFile: () => path.join(__dirname, "../node_modules/sql.js/dist/sql-wasm.wasm") });
   SQL2 = SQL;
@@ -60,7 +61,7 @@ Module._load = function (request, ...rest) {
   await new Promise((r) => setTimeout(r, 1500));
   const call = (name, arg) => handlers[name]({ sender: {} }, arg);
 
-  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v4.sqlite")), "backup before upgrade");
+  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v5.sqlite")), "backup before upgrade");
   let cat = call("db-get-catalog");
   assert.equal(cat.length, 1);
   assert.equal(cat[0].type, "material");
@@ -121,12 +122,25 @@ Module._load = function (request, ...rest) {
   assert.equal(lst.daysLeft, 14, "14 calendar days counting install day");
   assert.ok(fs.existsSync(path.join(dir, ".factory-inventory-install")), "trial start is also kept outside the database");
   assert.equal(call("license-set", { mode: "full" }).ok, false, "nobody but the owner can change the licence");
-  assert.equal(call("auth-create-admin", { username: "admin", password: "wrong-password" }).ok, true, "a customer may pick the name admin");
-  assert.equal(call("auth-login", { username: "admin", password: "wrong-password" }).owner, undefined);
+  assert.equal(call("auth-has-admin"), false);
+  assert.equal(rowsCount("users"), 0, "no owner row before the customer has an account");
+  assert.equal(call("auth-create-admin", { username: "Admin", password: "wrong-password" }).reason, "reserved", "customers cannot take the owner's username");
+  assert.equal(rowsCount("users"), 0);
+  assert.ok(call("auth-create-admin", { username: "client", password: "client-pass" }).recoveryCode);
+  assert.equal(call("auth-has-admin"), true);
+  assert.equal(call("auth-create-admin", { username: "second", password: "client-pass" }).reason, "exists", "the owner row does not count as a free slot");
+  const ownerRow = usersRows().find((u) => u.role === "owner");
+  assert.ok(ownerRow, "owner row added together with the customer's account");
+  assert.equal(ownerRow.username, "admin");
+  assert.equal(ownerRow.hash, testOwner.hash, "only the hash is stored");
+  assert.equal(JSON.stringify(usersRows()).includes(TEST_OWNER_PASSWORD), false);
+  assert.equal(call("auth-login", { username: "admin", password: "wrong-password" }).ok, false);
+  assert.equal(call("auth-login", { username: "admin", password: ownerRow.hash }).ok, false, "the stored hash is not a password");
+  assert.equal(call("auth-change-password", { currentPassword: "client-pass", newPassword: "client-pass" }).ok, true, "password change still targets the customer");
   assert.equal(call("license-set", { mode: "full" }).ok, false);
   const ownerLogin = call("auth-login", { username: "admin", password: TEST_OWNER_PASSWORD });
   assert.equal(ownerLogin.ok && ownerLogin.owner, true, "owner logs in with the hidden account");
-  assert.equal(rowsCount("users"), 1, "the owner is not stored in the database");
+  assert.equal(rowsCount("users"), 2, "customer + owner");
   assert.equal(call("license-set", { mode: "trial", days: 30, contact: "call 0100" }).status.daysLeft, 30);
   assert.equal(call("license-set", { mode: "expired" }).status.state, "expired");
   assert.equal(call("license-status").contact, "call 0100");
@@ -137,7 +151,7 @@ Module._load = function (request, ...rest) {
   assert.equal(call("license-status").state, "full", "the UI cannot overwrite the licence");
   call("auth-logout");
   assert.equal(call("license-set", { mode: "default" }).ok, false, "logging out drops the owner's rights");
-  assert.equal(call("auth-login", { username: "admin", password: "wrong-password" }).ok, true);
+  assert.equal(call("auth-login", { username: "client", password: "client-pass" }).ok, true);
   assert.equal(call("license-set", { mode: "default" }).ok, false);
 
   // the licence rules on their own
@@ -195,7 +209,7 @@ Module._load = function (request, ...rest) {
 
   // reopen from disk: everything persisted with the v3 schema
   const again = new SQL.Database(fs.readFileSync(path.join(dir, "factory-ledger.sqlite")));
-  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 4);
+  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 5);
   assert.equal(again.exec("SELECT COUNT(*) FROM catalog_items")[0].values[0][0], 1);
 
   console.log("main process tests passed");
