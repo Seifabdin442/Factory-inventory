@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld("auth", {
   logout: () => ipcRenderer.invoke("auth-logout"),
 });
 
+// These answer only while the owner is logged in.
+contextBridge.exposeInMainWorld("owner", {
+  listUsers: () => ipcRenderer.invoke("owner-list-users"),
+  saveUser: (user) => ipcRenderer.invoke("owner-save-user", user),
+  deleteUser: (id) => ipcRenderer.invoke("owner-delete-user", id),
+});
+
 contextBridge.exposeInMainWorld("license", {
   status: () => ipcRenderer.invoke("license-status"),
   set: (change) => ipcRenderer.invoke("license-set", change), // works only while the owner is logged in

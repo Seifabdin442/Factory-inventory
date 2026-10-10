@@ -149,8 +149,38 @@ Module._load = function (request, ...rest) {
   assert.equal(visible.license, undefined, "licence data is not exposed to the UI");
   call("settings-save", { license: "x", trialStart: "1" });
   assert.equal(call("license-status").state, "full", "the UI cannot overwrite the licence");
+  // a trial that starts on a chosen date: 10 days from 3 days ago → 7 left
+  assert.equal(call("license-set", { mode: "trial", days: 10, start: lic.isoDay(Date.now() - 3 * lic.DAY) }).status.daysLeft, 7);
+  assert.equal(call("license-set", { mode: "full" }).status.state, "full");
+
+  // ---- owner manages the customer's users ----
+  assert.deepEqual(call("owner-list-users").map((u) => u.username), ["client"], "the owner row is not listed");
+  assert.equal(call("owner-save-user", { username: "ADMIN", password: "abcd" }).reason, "reserved");
+  assert.equal(call("owner-save-user", { username: "Client", password: "abcd" }).reason, "taken");
+  assert.equal(call("owner-save-user", { username: "sara", password: "abc" }).ok, false, "password too short");
+  assert.equal(call("owner-save-user", { username: "sara", password: "sara-pass" }).ok, true);
+  const sara = call("owner-list-users").find((u) => u.username === "sara");
+  assert.equal(call("owner-save-user", { id: sara.id, password: "sara-new" }).ok, true, "owner resets a password");
+  const clientId = call("owner-list-users").find((u) => u.username === "client").id;
   call("auth-logout");
   assert.equal(call("license-set", { mode: "default" }).ok, false, "logging out drops the owner's rights");
+  assert.deepEqual(call("owner-list-users"), []);
+  assert.equal(call("owner-save-user", { username: "x", password: "abcd" }).ok, false);
+  assert.equal(call("owner-delete-user", clientId).ok, false);
+  assert.equal(call("auth-login", { username: "sara", password: "sara-pass" }).ok, false, "old password no longer works");
+  const saraLogin = call("auth-login", { username: "sara", password: "sara-new" });
+  assert.ok(saraLogin.ok && saraLogin.recoveryCode, "a new user gets a recovery code at first login");
+  // each user changes their own password, and a recovery code resets its own account
+  assert.equal(call("auth-change-password", { currentPassword: "client-pass", newPassword: "zzzz" }).ok, false);
+  assert.equal(call("auth-change-password", { currentPassword: "sara-new", newPassword: "sara-3" }).ok, true);
+  assert.equal(call("auth-reset-with-code", { code: saraLogin.recoveryCode, newPassword: "sara-4" }).username, "sara");
+  assert.equal(call("auth-login", { username: "client", password: "client-pass" }).ok, true, "the other account is untouched");
+  call("auth-login", { username: "admin", password: TEST_OWNER_PASSWORD });
+  assert.equal(call("owner-delete-user", usersRows().find((u) => u.role === "owner").id).ok, true);
+  assert.ok(usersRows().some((u) => u.role === "owner"), "the owner row cannot be deleted this way");
+  assert.equal(call("owner-delete-user", sara.id).ok, true);
+  assert.deepEqual(call("owner-list-users").map((u) => u.username), ["client"]);
+  call("auth-logout");
   assert.equal(call("auth-login", { username: "client", password: "client-pass" }).ok, true);
   assert.equal(call("license-set", { mode: "default" }).ok, false);
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Package, ShoppingCart, Users, BarChart3, Globe, X, Wallet, Scissors, FileText, Settings, Info,
-  Receipt, Boxes, Keyboard, RefreshCw, Factory, Warehouse, Handshake,
+  Receipt, Boxes, Keyboard, RefreshCw, Factory, Warehouse, Handshake, ShieldCheck,
 } from "lucide-react";
 import { T, fill } from "./i18n.js";
 import {
@@ -22,6 +22,7 @@ import { InventoryView, AdjustModal, StockHistoryModal } from "./stock.jsx";
 import { ProductionView, ProductionModal } from "./production.jsx";
 import { orderTransactions } from "./orders.js";
 import { OrdersView, OrderModal } from "./orders.jsx";
+import { OwnerView } from "./owner.jsx";
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -369,6 +370,8 @@ export default function FactoryLedger() {
     { key: "reports", label: t.reports, icon: Wallet },
     { key: "invoices", label: t.invoicesTab, icon: FileText },
     { key: "settings", label: t.settings, icon: Settings },
+    // Only the hidden owner account gets this page.
+    ...(isOwner ? [{ key: "owner", label: t.ownerTab, icon: ShieldCheck }] : []),
   ];
 
   function goTab(key) {
@@ -585,7 +588,10 @@ export default function FactoryLedger() {
         )}
         {tab === "settings" && (
           <SettingsView t={t} lang={lang} settings={settings} onSave={saveSettings} notify={notify}
-            isOwner={isOwner} license={license} onLicense={setLicense} />
+            isOwner={isOwner} />
+        )}
+        {tab === "owner" && isOwner && (
+          <OwnerView t={t} notify={notify} license={license} onLicense={setLicense} />
         )}
       </div>
 

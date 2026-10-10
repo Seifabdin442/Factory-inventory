@@ -49,7 +49,7 @@ export function SettingsCard({ title, desc, children }) {
   );
 }
 
-export function SettingsView({ t, lang, settings, onSave, notify, isOwner, license, onLicense }) {
+export function SettingsView({ t, lang, settings, onSave, notify, isOwner }) {
   const [form, setForm] = useState(() => ({ ...SETTINGS_DEFAULTS, ...settings }));
   const [saving, setSaving] = useState(false);
   const fileRef = React.useRef(null);
@@ -157,49 +157,8 @@ export function SettingsView({ t, lang, settings, onSave, notify, isOwner, licen
         <Btn variant="accent" onClick={save} disabled={saving}><CheckCircle2 size={16} /> {t.saveSettings}</Btn>
       </div>
 
-      <SecurityCard t={t} notify={notify} />
-      {isOwner && <LicenseCard t={t} notify={notify} license={license} onLicense={onLicense} />}
+      {!isOwner && <SecurityCard t={t} notify={notify} />}
     </div>
-  );
-}
-
-/* Trial and activation — rendered only for the hidden owner account. */
-function LicenseCard({ t, notify, license, onLicense }) {
-  const [days, setDays] = useState("14");
-  const [contact, setContact] = useState((license && license.contact) || "");
-  const [busy, setBusy] = useState(false);
-  async function apply(change) {
-    setBusy(true);
-    try {
-      const res = await window.license.set({ ...change, contact });
-      if (res && res.ok) { onLicense(res.status); notify(t.licenseSaved); } else notify(t.saveFailed, "error");
-    } catch (err) { notify(`${t.saveFailed}: ${errMsg(err)}`, "error"); }
-    setBusy(false);
-  }
-  const st = license || {};
-  const label = st.state === "full" ? t.lic_full
-    : st.state === "trial" ? fill(t.lic_trial, { d: st.until, n: st.daysLeft })
-      : fill(t.lic_expired, { d: st.until || "" });
-  const color = st.state === "full" ? COLORS.in : st.state === "trial" ? "#8A5A00" : COLORS.out;
-  return (
-    <SettingsCard title={t.licenseCard} desc={t.licenseDesc}>
-      <div data-license-state={st.state} style={{ fontSize: 14.5, fontWeight: 800, color, marginBottom: 14 }}>{label}</div>
-      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-        <div style={{ width: 150 }}>
-          <Input label={t.trialDays} type="number" min="0" step="1" value={days} onChange={(e) => setDays(e.target.value)} dir="ltr" />
-        </div>
-        <Btn variant="primary" disabled={busy} onClick={() => apply({ mode: "trial", days: Number(days) || 0 })} style={{ marginBottom: 12 }}>
-          <Clock size={15} /> {t.setTrial}
-        </Btn>
-      </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <Btn variant="accent" disabled={busy} onClick={() => apply({ mode: "full" })}><ShieldCheck size={15} /> {t.activateFull}</Btn>
-        <Btn variant="danger" disabled={busy} onClick={() => apply({ mode: "expired" })}>{t.endTrialNow}</Btn>
-        <Btn variant="ghost" disabled={busy} onClick={() => apply({ mode: "default" })}>{fill(t.resetTrial, { n: st.defaultTrialDays || 14 })}</Btn>
-      </div>
-      <Input label={t.contactOnExpiry} value={contact} onChange={(e) => setContact(e.target.value)} placeholder={t.contactOnExpiryPh} maxLength={200} />
-      <Btn variant="ghost" disabled={busy} onClick={() => apply({ mode: "contact" })}>{t.saveContact}</Btn>
-    </SettingsCard>
   );
 }
 

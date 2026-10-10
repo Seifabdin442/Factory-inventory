@@ -216,6 +216,7 @@ function rowsFromQuery(sql, params) {
 
 /* ---- trial period and activation (see license.cjs) ---- */
 let ownerKey = null; // signing key; exists only while the hidden owner account is logged in
+let currentUserId = null; // the customer account that is logged in (there can be several)
 const LICENSE_KEYS = ["license", "trialStart", "installId", "lastSeen"]; // never sent to or written by the UI
 
 function rawSetting(key) {
@@ -244,7 +245,7 @@ ipcMain.handle("license-status", () => {
 });
 
 // Only the owner can change the licence. mode: "full" | "trial" (with days) | "expired" | "default" | "contact"
-ipcMain.handle("license-set", (e, { mode, days, contact }) => {
+ipcMain.handle("license-set", (e, { mode, days, start, contact }) => {
   if (!ownerKey) return { ok: false };
   const { now, machine } = licenseContext();
   if (typeof contact === "string") putSetting("licenseContact", contact.trim().slice(0, 200));
@@ -252,7 +253,7 @@ ipcMain.handle("license-set", (e, { mode, days, contact }) => {
   else if (mode === "full" || mode === "trial" || mode === "expired") {
     const payload = {
       mode, machine, issuedAt: new Date(now).toISOString(),
-      until: mode === "trial" ? license.isoDay(now + (Math.max(Math.round(Number(days) || 0), 0) - 1) * license.DAY) : null,
+      until: mode === "trial" ? trialEnd(start, days, now) : null,
     };
     putSetting("license", JSON.stringify({ payload, sig: license.sign(ownerKey, payload) }));
   }
@@ -260,7 +261,50 @@ ipcMain.handle("license-set", (e, { mode, days, contact }) => {
   return { ok: true, status: licenseStatus() };
 });
 
-ipcMain.handle("auth-logout", () => { ownerKey = null; return { ok: true }; });
+// Last day of a trial of `days` calendar days beginning on `start` (YYYY-MM-DD, default today).
+function trialEnd(start, days, now) {
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(start || "")) ? new Date(`${start}T12:00:00`).getTime() : now;
+  return license.isoDay(from + (Math.max(Math.round(Number(days) || 0), 0) - 1) * license.DAY);
+}
+
+ipcMain.handle("auth-logout", () => { ownerKey = null; currentUserId = null; return { ok: true }; });
+
+/* ---- the customer's user accounts, managed by the owner ---- */
+ipcMain.handle("owner-list-users", () => {
+  if (!ownerKey) return [];
+  return rowsFromQuery("SELECT id, username, createdAt FROM users WHERE (role IS NULL OR role <> 'owner') ORDER BY createdAt");
+});
+
+// New account (no id) or a new password for an existing one.
+ipcMain.handle("owner-save-user", (e, { id, username, password }) => {
+  if (!ownerKey) return { ok: false };
+  if (String(password || "").length < 4) return { ok: false, reason: "password" };
+  if (id) {
+    if (!rowsFromQuery("SELECT 1 FROM users WHERE id = ? AND (role IS NULL OR role <> 'owner')", [id]).length) return { ok: false };
+    setPassword(id, String(password));
+    // The old recovery code goes too; the user gets a fresh one at their next login.
+    db.run("UPDATE users SET recoverySalt = NULL, recoveryHash = NULL WHERE id = ?", [id]);
+  } else {
+    const name = String(username || "").trim();
+    if (!name) return { ok: false };
+    if (isOwnerName(name)) return { ok: false, reason: "reserved" };
+    if (rowsFromQuery("SELECT 1 FROM users WHERE lower(username) = lower(?)", [name]).length) return { ok: false, reason: "taken" };
+    const salt = crypto.randomBytes(16).toString("hex");
+    db.run("INSERT INTO users (id,username,salt,hash,createdAt) VALUES (?,?,?,?,?)", [
+      crypto.randomUUID(), name, salt, hashPassword(String(password), salt), new Date().toISOString(),
+    ]);
+    ensureOwnerRow();
+  }
+  persist();
+  return { ok: true };
+});
+
+ipcMain.handle("owner-delete-user", (e, id) => {
+  if (!ownerKey) return { ok: false };
+  db.run("DELETE FROM users WHERE id = ? AND (role IS NULL OR role <> 'owner')", [id]);
+  persist();
+  return { ok: true };
+});
 
 /* The owner's row is added quietly the moment the customer creates their own account (and put back at
    start-up if it ever goes missing). Only the salted hash of the owner password is stored, never the
@@ -331,6 +375,14 @@ function adminUser() {
   return rows[0] || null;
 }
 
+function loggedInUser() {
+  if (currentUserId) {
+    const rows = rowsFromQuery("SELECT * FROM users WHERE id = ? AND (role IS NULL OR role <> 'owner')", [currentUserId]);
+    if (rows.length) return rows[0];
+  }
+  return ownerKey ? null : adminUser();
+}
+
 // Slow down guessing: after 5 wrong attempts, wait before trying again.
 const attempts = { login: { fails: 0, until: 0 }, reset: { fails: 0, until: 0 } };
 function lockedFor(kind) {
@@ -363,6 +415,7 @@ ipcMain.handle("auth-create-admin", (e, { username, password }) => {
   ]);
   const recoveryCode = storeRecoveryCode(id);
   ensureOwnerRow();
+  currentUserId = id;
   persist();
   return { ok: true, recoveryCode };
 });
@@ -379,6 +432,7 @@ ipcMain.handle("auth-login", (e, { username, password }) => {
     return { ok: false };
   }
   ownerKey = null;
+  currentUserId = user.id;
   recordSuccess("login");
   // Installs from before v1.2 have no recovery code yet: create one now and show it once.
   if (!user.recoveryHash) {
@@ -392,10 +446,11 @@ ipcMain.handle("auth-login", (e, { username, password }) => {
 ipcMain.handle("auth-reset-with-code", (e, { code, newPassword }) => {
   const wait = lockedFor("reset");
   if (wait) return { ok: false, reason: "locked", wait };
-  const user = adminUser();
-  if (!user || !user.recoveryHash) return { ok: false, reason: "no-code" };
-  const ok = safeEqualHex(hashPassword(normalizeCode(code), user.recoverySalt), user.recoveryHash);
-  if (!ok) { recordFail("reset"); return { ok: false }; }
+  // Each account has its own code; find the one this code belongs to.
+  const withCode = rowsFromQuery("SELECT * FROM users WHERE (role IS NULL OR role <> 'owner') AND recoveryHash IS NOT NULL");
+  if (!withCode.length) return { ok: false, reason: "no-code" };
+  const user = withCode.find((u) => safeEqualHex(hashPassword(normalizeCode(code), u.recoverySalt), u.recoveryHash));
+  if (!user) { recordFail("reset"); return { ok: false }; }
   recordSuccess("reset");
   setPassword(user.id, String(newPassword));
   const recoveryCode = storeRecoveryCode(user.id); // the used code stops working
@@ -404,7 +459,7 @@ ipcMain.handle("auth-reset-with-code", (e, { code, newPassword }) => {
 });
 
 ipcMain.handle("auth-change-password", (e, { currentPassword, newPassword }) => {
-  const user = adminUser();
+  const user = loggedInUser();
   if (!user || !checkPassword(user, currentPassword)) return { ok: false };
   setPassword(user.id, String(newPassword));
   persist();
@@ -412,7 +467,7 @@ ipcMain.handle("auth-change-password", (e, { currentPassword, newPassword }) => 
 });
 
 ipcMain.handle("auth-new-recovery-code", (e, { password }) => {
-  const user = adminUser();
+  const user = loggedInUser();
   if (!user || !checkPassword(user, password)) return { ok: false };
   const recoveryCode = storeRecoveryCode(user.id);
   persist();
