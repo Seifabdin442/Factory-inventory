@@ -51,6 +51,43 @@ function LicenseCard({ t, notify, license, onLicense }) {
   );
 }
 
+/* Which pages this customer gets. Saved inside the signed licence, for this computer. */
+function ModulesCard({ t, notify, license, onLicense, modules }) {
+  const saved = license && Array.isArray(license.modules) ? license.modules : null; // null = everything
+  const [on, setOn] = useState(() => new Set(saved || modules.map(([k]) => k)));
+  const [busy, setBusy] = useState(false);
+  const toggle = (key) => setOn((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  const dirty = modules.some(([k]) => on.has(k) !== (saved ? saved.includes(k) : true));
+  async function save() {
+    setBusy(true);
+    try {
+      const list = modules.map(([k]) => k).filter((k) => on.has(k));
+      const res = await window.license.set({ mode: "modules", modules: list.length === modules.length ? null : list });
+      if (res && res.ok) { onLicense(res.status); notify(t.modulesSaved); } else notify(t.saveFailed, "error");
+    } catch (err) { notify(`${t.saveFailed}: ${errMsg(err)}`, "error"); }
+    setBusy(false);
+  }
+  return (
+    <SettingsCard title={t.modulesCard} desc={t.modulesDesc}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8, marginBottom: 14 }}>
+        {modules.map(([key, label]) => (
+          <label key={key} data-module={key} style={{
+            display: "flex", gap: 9, alignItems: "center", padding: "9px 12px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 600,
+            border: `1px solid ${on.has(key) ? COLORS.accent : COLORS.border}`, background: on.has(key) ? COLORS.accentSoft : COLORS.surface,
+          }}>
+            <input type="checkbox" checked={on.has(key)} onChange={() => toggle(key)} style={{ width: 16, height: 16 }} />
+            {label}
+          </label>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <Btn variant="accent" disabled={busy || !dirty} onClick={save}>{t.saveModules}</Btn>
+        <span style={{ fontSize: 12.5, color: COLORS.muted }}>{fill(t.modulesCount, { n: on.size, m: modules.length })}</span>
+      </div>
+    </SettingsCard>
+  );
+}
+
 function UserModal({ t, user, onClose, onSave }) {
   const [username, setUsername] = useState(user ? user.username : "");
   const [password, setPassword] = useState("");
@@ -126,12 +163,13 @@ function UsersCard({ t, notify }) {
   );
 }
 
-export function OwnerView({ t, notify, license, onLicense }) {
+export function OwnerView({ t, notify, license, onLicense, modules }) {
   return (
     <div style={{ maxWidth: 820 }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800 }}>{t.ownerTab}</h2>
       <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 16 }}>{t.ownerDesc}</div>
       <LicenseCard t={t} notify={notify} license={license} onLicense={onLicense} />
+      <ModulesCard t={t} notify={notify} license={license} onLicense={onLicense} modules={modules} />
       <UsersCard t={t} notify={notify} />
     </div>
   );

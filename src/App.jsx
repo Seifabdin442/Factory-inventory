@@ -50,6 +50,9 @@ export default function FactoryLedger() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [isOwner, setIsOwner] = useState(false); // the hidden account that controls trials and activation
   const [license, setLicense] = useState(null); // { state: "trial" | "full" | "expired", daysLeft, until, contact }
+  // Pages the owner switched off for this customer are hidden. The owner always sees everything.
+  const allowed = (key) => isOwner || !license || !Array.isArray(license.modules) || license.modules.includes(key)
+    || key === "dashboard" || key === "settings";
   const refreshLicense = () => window.license && window.license.status().then((s) => s && setLicense(s)).catch(() => {});
 
   const [txModal, setTxModal] = useState(null); // { kind: 'purchase'|'sale', editId? }
@@ -121,6 +124,8 @@ export default function FactoryLedger() {
       setLoaded(true);
     })();
   }, [loggedIn]);
+
+  useEffect(() => { if (!allowed(tab)) setTab("dashboard"); }, [tab, license, isOwner]);
 
   // Notice a trial running out while the app stays open.
   useEffect(() => {
@@ -372,7 +377,7 @@ export default function FactoryLedger() {
     { key: "settings", label: t.settings, icon: Settings },
     // Only the hidden owner account gets this page.
     ...(isOwner ? [{ key: "owner", label: t.ownerTab, icon: ShieldCheck }] : []),
-  ];
+  ].filter((item) => item.key === "owner" || allowed(item.key));
 
   function goTab(key) {
     setTab(key);
@@ -386,7 +391,7 @@ export default function FactoryLedger() {
     else if (tab === "production") setProdModal({});
     else if (tab === "orders") setOrderModal({});
     else if (tab === "inventory") setAdjustModal({});
-    else setTxModal({ kind: "sale" });
+    else if (allowed("sales")) setTxModal({ kind: "sale" });
   }
   function openParty(id) {
     const p = parties.find((x) => x.id === id);
@@ -529,7 +534,7 @@ export default function FactoryLedger() {
         {tab === "dashboard" && (
           <Dashboard t={t} lang={lang} transactions={transactions} parties={parties} partiesWithBalance={partiesWithBalance}
             totalReceivable={totalReceivable} totalPayable={totalPayable} today={today}
-            catalog={catalog} inv={inventory} settings={settings} onGoInventory={() => goTab("inventory")}
+            catalog={catalog} inv={inventory} settings={settings} onGoInventory={allowed("inventory") ? () => goTab("inventory") : undefined}
             onOpenParty={openParty} onGoAging={goAging} />
         )}
         {(tab === "purchases" || tab === "sales") && (() => {
@@ -591,7 +596,11 @@ export default function FactoryLedger() {
             isOwner={isOwner} />
         )}
         {tab === "owner" && isOwner && (
-          <OwnerView t={t} notify={notify} license={license} onLicense={setLicense} />
+          <OwnerView t={t} notify={notify} license={license} onLicense={setLicense} modules={[
+            ["purchases", t.purchases], ["production", t.production], ["sales", t.sales], ["orders", t.orders],
+            ["inventory", t.inventory], ["expenses", t.expenses], ["parties", t.parties], ["catalog", t.catalog],
+            ["reports", t.reports], ["invoices", t.invoicesTab],
+          ]} />
         )}
       </div>
 

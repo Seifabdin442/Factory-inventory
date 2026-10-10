@@ -35,7 +35,15 @@ function checkOwner(owner, username, password) {
   return a.length === b.length && crypto.timingSafeEqual(a, b) ? d.privateKey : null;
 }
 
-const canonical = (p) => JSON.stringify([p.mode, p.until || "", p.machine, p.issuedAt]);
+// The pages the owner can switch on or off for a customer. The dashboard and settings are always there.
+const MODULES = ["purchases", "production", "sales", "orders", "inventory", "expenses", "parties", "catalog", "reports", "invoices"];
+
+// `modules` (the list of pages switched on, or null for all of them) is part of what gets signed, so the
+// customer cannot switch a page on by editing the database. Licences from before modules existed have no
+// such field and keep their original signature.
+const canonical = (p) => JSON.stringify(p.modules === undefined
+  ? [p.mode, p.until || "", p.machine, p.issuedAt]
+  : [p.mode, p.until || "", p.machine, p.issuedAt, p.modules]);
 
 function sign(privateKey, payload) {
   return crypto.sign(null, Buffer.from(canonical(payload)), privateKey).toString("hex");
@@ -96,25 +104,35 @@ function trustedNow({ get, set, now }) {
 const endOfDay = (isoDate) => new Date(`${isoDate}T23:59:59`).getTime();
 const isoDay = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
-function status({ owner, licenseJson, trialStart, machine, now }) {
+// The owner's licence for this computer, or null if there is none or it does not check out.
+function validPayload({ owner, licenseJson, machine }) {
   let lic = null;
   try { lic = licenseJson ? JSON.parse(licenseJson) : null; } catch (err) { lic = null; }
-  if (lic && lic.payload && lic.payload.machine === machine && verify(owner, lic.payload, lic.sig)) {
-    const p = lic.payload;
-    if (p.mode === "full") return { state: "full", source: "owner" };
+  return lic && lic.payload && lic.payload.machine === machine && verify(owner, lic.payload, lic.sig) ? lic.payload : null;
+}
+
+const cleanModules = (list) => (Array.isArray(list) ? MODULES.filter((m) => list.includes(m)) : null);
+
+function status({ owner, licenseJson, trialStart, machine, now }) {
+  const p = validPayload({ owner, licenseJson, machine });
+  if (p) {
+    const modules = cleanModules(p.modules);
+    if (p.mode === "full") return { state: "full", source: "owner", modules };
     if (p.mode === "trial" && p.until) {
       const end = endOfDay(p.until);
       return now <= end
-        ? { state: "trial", until: p.until, daysLeft: Math.max(1, Math.ceil((end - now) / DAY)), source: "owner" }
-        : { state: "expired", until: p.until, source: "owner" };
+        ? { state: "trial", until: p.until, daysLeft: Math.max(1, Math.ceil((end - now) / DAY)), source: "owner", modules }
+        : { state: "expired", until: p.until, source: "owner", modules };
     }
-    return { state: "expired", source: "owner" };
+    return { state: "expired", source: "owner", modules };
   }
   // A trial of N days is N calendar days counting the first one; daysLeft counts today.
   const end = endOfDay(isoDay(trialStart + ((Number(owner.defaultTrialDays) || 14) - 1) * DAY));
   return now <= end
-    ? { state: "trial", until: isoDay(end), daysLeft: Math.max(1, Math.ceil((end - now) / DAY)), source: "default" }
-    : { state: "expired", until: isoDay(end), source: "default" };
+    ? { state: "trial", until: isoDay(end), daysLeft: Math.max(1, Math.ceil((end - now) / DAY)), source: "default", modules: null }
+    : { state: "expired", until: isoDay(end), source: "default", modules: null };
 }
 
-module.exports = { deriveOwner, checkOwner, sign, verify, machineId, ensureTrialStart, trustedNow, status, isoDay, DAY };
+module.exports = {
+  deriveOwner, checkOwner, sign, verify, machineId, ensureTrialStart, trustedNow, status, validPayload, cleanModules, isoDay, DAY, MODULES,
+};

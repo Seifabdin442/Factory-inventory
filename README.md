@@ -26,7 +26,7 @@ This opens the app in a window. Close the window to quit.
 ```
 npm run dist
 ```
-This creates a single file in the `release/` folder, e.g. `Factory-Inventory-Setup-1.6.0.exe`.
+This creates a single file in the `release/` folder, e.g. `Factory-Inventory-Setup-1.7.0.exe`.
 
 **That one file is everything your client needs.** Send it to them (USB drive, WhatsApp, email, Google Drive — anything).
 They just double-click it: no options screen, no questions — it installs the app, adds a "Factory Inventory" icon to
@@ -55,7 +55,7 @@ install everything and build the `.exe` on their servers — you only use a brow
    again to confirm.
 7. Wait 3–5 minutes for it to finish (green checkmark).
 8. Click into the finished run, scroll down to **Artifacts**, and download `factory-ledger-installer`.
-   Unzip it — inside is your one file, `Factory-Inventory-Setup-1.6.0.exe`. That's what you send to your
+   Unzip it — inside is your one file, `Factory-Inventory-Setup-1.7.0.exe`. That's what you send to your
    client.
 
 You only repeat this if you change the app later. Each run is free under GitHub's free-tier minutes.
@@ -120,6 +120,13 @@ Deleting or editing that row does not remove the owner's access: the password is
   - **Licence and trial**: set a trial by its start date and number of days (also used to extend one),
     **activate the full version**, **end the trial now**, go **back to the default trial** (14 days from
     the install date), and set a **message shown to the customer** on the trial-ended screen.
+  - **Modules for this customer**: tick the pages this customer gets (Purchases, Production, Sales,
+    Client orders, Inventory, Expenses, Clients & Suppliers, Items & fabrics, Reports, Invoices). A page
+    that is switched off disappears from the menu; its data is kept and comes back when it is switched
+    on again. The dashboard and settings are always shown, and the owner always sees every page. The
+    choice is part of the signed licence, so it cannot be changed by editing the database, and it is
+    kept when the trial is changed or the app is activated. "Back to the default trial" also switches
+    every module back on.
   - **Users**: the customer's login accounts on that computer — add a user, set a new password for
     one, or delete one. All users have the same access. Each user has their own recovery code and
     changes their own password in Settings → Security.
@@ -255,7 +262,7 @@ No internet → nothing happens, the app works as normal.
 
 **Every time you want to send out an update**
 
-1. In `package.json`, increase `"version"` (e.g. `1.6.0` → `1.6.1`). Updates only go out when this
+1. In `package.json`, increase `"version"` (e.g. `1.7.0` → `1.7.1`). Updates only go out when this
    number goes up — the release workflow stops with a clear message if you forget.
 2. Upload the changed files to GitHub as usual and commit.
 3. **Actions** tab → **Release (auto-update)** → **Run workflow**. It builds the installer and publishes

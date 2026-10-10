@@ -91,6 +91,7 @@ export function Dashboard({ t, lang, transactions, parties, partiesWithBalance, 
         </Card>
       </div>
 
+      {onGoInventory && (
       <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1fr) minmax(0, 1.7fr)", gap: 16, marginBottom: 16 }}>
         <Card title={t.inventory} action={<button style={linkBtn} onClick={onGoInventory}>{t.viewInventory} <Arrow size={14} /></button>}>
           <div style={{ fontSize: 12, color: COLORS.muted }}>{t.totalStockValue}</div>
@@ -102,6 +103,7 @@ export function Dashboard({ t, lang, transactions, parties, partiesWithBalance, 
           <LowStockList t={t} lang={lang} catalog={catalog} inv={inv} settings={settings} onOpen={onGoInventory} />
         </Card>
       </div>
+      )}
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <MetricCard label={t.outstandingReceivables} value={fmtMoney(totalReceivable, lang)} tone="in" />

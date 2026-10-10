@@ -244,17 +244,28 @@ ipcMain.handle("license-status", () => {
   return st;
 });
 
-// Only the owner can change the licence. mode: "full" | "trial" (with days) | "expired" | "default" | "contact"
-ipcMain.handle("license-set", (e, { mode, days, start, contact }) => {
+// Only the owner can change the licence.
+// mode: "full" | "trial" (start + days) | "expired" | "modules" (pages switched on) | "default" | "contact"
+ipcMain.handle("license-set", (e, { mode, days, start, contact, modules }) => {
   if (!ownerKey) return { ok: false };
   const { now, machine } = licenseContext();
   if (typeof contact === "string") putSetting("licenseContact", contact.trim().slice(0, 200));
   if (mode === "default") db.run("DELETE FROM settings WHERE key = 'license'");
-  else if (mode === "full" || mode === "trial" || mode === "expired") {
+  else if (mode === "full" || mode === "trial" || mode === "expired" || mode === "modules") {
+    // Start from what is in force now, so changing the trial keeps the modules and the other way round.
+    const current = license.validPayload({ owner, licenseJson: rawSetting("license"), machine });
+    const before = licenseStatus();
     const payload = {
-      mode, machine, issuedAt: new Date(now).toISOString(),
-      until: mode === "trial" ? trialEnd(start, days, now) : null,
+      mode: current ? current.mode : "trial",
+      until: current ? current.until || null : before.until,
+      modules: current ? license.cleanModules(current.modules) : null,
+      machine, issuedAt: new Date(now).toISOString(),
     };
+    if (mode === "modules") payload.modules = license.cleanModules(modules);
+    else {
+      payload.mode = mode;
+      payload.until = mode === "trial" ? trialEnd(start, days, now) : null;
+    }
     putSetting("license", JSON.stringify({ payload, sig: license.sign(ownerKey, payload) }));
   }
   persist();

@@ -153,6 +153,21 @@ Module._load = function (request, ...rest) {
   assert.equal(call("license-set", { mode: "trial", days: 10, start: lic.isoDay(Date.now() - 3 * lic.DAY) }).status.daysLeft, 7);
   assert.equal(call("license-set", { mode: "full" }).status.state, "full");
 
+  // ---- modules: which pages the customer gets ----
+  assert.equal(call("license-status").modules, null, "everything is on unless the owner says otherwise");
+  let ms = call("license-set", { mode: "modules", modules: ["sales", "purchases", "not-a-module"] }).status;
+  assert.deepEqual(ms.modules, ["purchases", "sales"]);
+  assert.equal(ms.state, "full", "changing modules keeps the activation");
+  assert.deepEqual(call("license-set", { mode: "trial", days: 5 }).status.modules, ["purchases", "sales"], "changing the trial keeps the modules");
+  assert.deepEqual(call("license-set", { mode: "modules", modules: [] }).status.modules, []);
+  assert.equal(call("license-set", { mode: "modules", modules: null }).status.modules, null);
+  assert.equal(call("license-set", { mode: "default" }).status.modules, null);
+  // on the default trial (no licence yet) choosing modules keeps the trial's end date
+  const defUntil = call("license-status").until;
+  ms = call("license-set", { mode: "modules", modules: ["sales"] }).status;
+  assert.deepEqual([ms.state, ms.until, ms.modules], ["trial", defUntil, ["sales"]]);
+  assert.equal(call("license-set", { mode: "full" }).status.state, "full");
+
   // ---- owner manages the customer's users ----
   assert.deepEqual(call("owner-list-users").map((u) => u.username), ["client"], "the owner row is not listed");
   assert.equal(call("owner-save-user", { username: "ADMIN", password: "abcd" }).reason, "reserved");
@@ -192,6 +207,13 @@ Module._load = function (request, ...rest) {
   assert.equal(lic.status({ ...base, licenseJson: signed(full), trialStart: now - 400 * lic.DAY }).state, "full");
   assert.equal(lic.status({ ...base, licenseJson: "", trialStart: now - 20 * lic.DAY }).state, "expired", "default trial runs out");
   assert.equal(lic.status({ ...base, licenseJson: "", trialStart: now - 3 * lic.DAY }).daysLeft, 11);
+  // modules are part of the signature: adding one by hand voids the licence
+  const limited = JSON.parse(signed({ ...full, modules: ["sales"] }));
+  assert.deepEqual(lic.status({ ...base, licenseJson: JSON.stringify(limited), trialStart: now }).modules, ["sales"]);
+  limited.payload.modules = ["sales", "production"];
+  assert.equal(lic.status({ ...base, licenseJson: JSON.stringify(limited), trialStart: now - 20 * lic.DAY }).state, "expired");
+  delete limited.payload.modules;
+  assert.equal(lic.status({ ...base, licenseJson: JSON.stringify(limited), trialStart: now - 20 * lic.DAY }).state, "expired");
   // hand-edited licence: the signature no longer matches, so the default trial applies
   const forged = JSON.stringify({ payload: { ...full, mode: "full" }, sig: "00".repeat(64) });
   assert.equal(lic.status({ ...base, licenseJson: forged, trialStart: now - 20 * lic.DAY }).state, "expired");
