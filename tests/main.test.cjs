@@ -18,16 +18,26 @@ const electron = {
   dialog: { showErrorBox: (a, b) => { throw new Error(b); } },
   shell: {},
 };
+// A throwaway owner account for the tests (the real one lives in electron/owner.cjs).
+const lic = require("../electron/license.cjs");
+const TEST_OWNER_PASSWORD = "test-owner-password";
+const testSalt = "00112233445566778899aabbccddeeff";
+const derived = lic.deriveOwner(TEST_OWNER_PASSWORD, testSalt);
+const testOwner = { username: "admin", salt: testSalt, hash: derived.hash, publicKey: derived.publicKey, defaultTrialDays: 14 };
 const origLoad = Module._load;
 Module._load = function (request, ...rest) {
   if (request === "electron") return electron;
+  if (request === "./owner.cjs") return testOwner;
   if (request === "electron-updater") throw new Error("not available");
   return origLoad.call(this, request, ...rest);
 };
 
 (async () => {
+  const rowsCount = (table) => { const d = new SQL2.Database(fs.readFileSync(path.join(dir, "factory-ledger.sqlite"))); return d.exec(`SELECT COUNT(*) FROM ${table}`)[0].values[0][0]; };
+  let SQL2;
   // A v2 database as written by version 1.2
   const SQL = await require("sql.js")({ locateFile: () => path.join(__dirname, "../node_modules/sql.js/dist/sql-wasm.wasm") });
+  SQL2 = SQL;
   const old = new SQL.Database();
   old.run(`
     CREATE TABLE parties (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, phone TEXT);
@@ -104,6 +114,56 @@ Module._load = function (request, ...rest) {
   assert.equal(call("db-get-productions").length, 0);
   call("db-delete-catalog", "old1");
   assert.equal(call("db-get-transactions")[0].items[0].catalogId, null);
+
+  // ---- trial and activation ----
+  let lst = call("license-status");
+  assert.equal(lst.state, "trial");
+  assert.equal(lst.daysLeft, 14, "14 calendar days counting install day");
+  assert.ok(fs.existsSync(path.join(dir, ".factory-inventory-install")), "trial start is also kept outside the database");
+  assert.equal(call("license-set", { mode: "full" }).ok, false, "nobody but the owner can change the licence");
+  assert.equal(call("auth-create-admin", { username: "admin", password: "wrong-password" }).ok, true, "a customer may pick the name admin");
+  assert.equal(call("auth-login", { username: "admin", password: "wrong-password" }).owner, undefined);
+  assert.equal(call("license-set", { mode: "full" }).ok, false);
+  const ownerLogin = call("auth-login", { username: "admin", password: TEST_OWNER_PASSWORD });
+  assert.equal(ownerLogin.ok && ownerLogin.owner, true, "owner logs in with the hidden account");
+  assert.equal(rowsCount("users"), 1, "the owner is not stored in the database");
+  assert.equal(call("license-set", { mode: "trial", days: 30, contact: "call 0100" }).status.daysLeft, 30);
+  assert.equal(call("license-set", { mode: "expired" }).status.state, "expired");
+  assert.equal(call("license-status").contact, "call 0100");
+  assert.equal(call("license-set", { mode: "full" }).status.state, "full");
+  const visible = call("settings-get");
+  assert.equal(visible.license, undefined, "licence data is not exposed to the UI");
+  call("settings-save", { license: "x", trialStart: "1" });
+  assert.equal(call("license-status").state, "full", "the UI cannot overwrite the licence");
+  call("auth-logout");
+  assert.equal(call("license-set", { mode: "default" }).ok, false, "logging out drops the owner's rights");
+  assert.equal(call("auth-login", { username: "admin", password: "wrong-password" }).ok, true);
+  assert.equal(call("license-set", { mode: "default" }).ok, false);
+
+  // the licence rules on their own
+  const now = Date.now();
+  const base = { owner: testOwner, machine: "m1", now };
+  const signed = (payload, key = derived.privateKey) => JSON.stringify({ payload, sig: lic.sign(key, payload) });
+  const full = { mode: "full", until: null, machine: "m1", issuedAt: "x" };
+  assert.equal(lic.status({ ...base, licenseJson: signed(full), trialStart: now - 400 * lic.DAY }).state, "full");
+  assert.equal(lic.status({ ...base, licenseJson: "", trialStart: now - 20 * lic.DAY }).state, "expired", "default trial runs out");
+  assert.equal(lic.status({ ...base, licenseJson: "", trialStart: now - 3 * lic.DAY }).daysLeft, 11);
+  // hand-edited licence: the signature no longer matches, so the default trial applies
+  const forged = JSON.stringify({ payload: { ...full, mode: "full" }, sig: "00".repeat(64) });
+  assert.equal(lic.status({ ...base, licenseJson: forged, trialStart: now - 20 * lic.DAY }).state, "expired");
+  const edited = JSON.parse(signed({ mode: "trial", until: lic.isoDay(now - lic.DAY), machine: "m1", issuedAt: "x" }));
+  edited.payload.until = lic.isoDay(now + 300 * lic.DAY);
+  assert.equal(lic.status({ ...base, licenseJson: JSON.stringify(edited), trialStart: now - 20 * lic.DAY }).state, "expired");
+  // copied to another computer, or signed with a different password
+  assert.equal(lic.status({ ...base, machine: "m2", licenseJson: signed(full), trialStart: now - 20 * lic.DAY }).state, "expired");
+  const other = lic.deriveOwner("another-password", testSalt);
+  assert.equal(lic.status({ ...base, licenseJson: signed(full, other.privateKey), trialStart: now - 20 * lic.DAY }).state, "expired");
+  // turning the clock back does not give time back; deleting the database does not restart the trial
+  const mem = { lastSeen: String(now) };
+  assert.equal(lic.trustedNow({ get: (k) => mem[k], set: (k, v) => { mem[k] = v; }, now: now - 30 * lic.DAY }), now);
+  const fresh = {};
+  const again2 = lic.ensureTrialStart({ markerFile: path.join(dir, ".factory-inventory-install"), get: (k) => fresh[k] || "", set: (k, v) => { fresh[k] = v; }, now: now + 99 * lic.DAY });
+  assert.ok(again2.start <= now + 1000, "an emptied database picks the original start date back up");
 
   // client orders: the order and its ledger entries are saved and replaced together
   call("db-upsert-party", { id: "cl", name: "Client", type: "client", phone: "" });

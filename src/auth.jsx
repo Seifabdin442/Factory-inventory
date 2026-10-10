@@ -1,6 +1,6 @@
 // Login, first-time setup, password reset with a recovery code.
 import React, { useState } from "react";
-import { Scissors, Globe, KeyRound, Copy, FileDown, ShieldCheck } from "lucide-react";
+import { Scissors, Globe, KeyRound, Copy, FileDown, ShieldCheck, Lock } from "lucide-react";
 import { COLORS, Btn, Input } from "./ui.jsx";
 import { fill } from "./i18n.js";
 
@@ -43,6 +43,31 @@ export function RecoveryCodeBox({ t, code, onDone, doneLabel }) {
   );
 }
 
+/* Shown instead of the app when the trial period is over. The data is untouched. */
+export function TrialEndedScreen({ t, lang, license, onLogout }) {
+  return (
+    <div dir={lang === "ar" ? "rtl" : "ltr"} style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: COLORS.bg, fontFamily: "'Cairo', sans-serif",
+    }}>
+      <div style={{
+        width: 420, background: COLORS.surface, borderRadius: 14, padding: 30, textAlign: "center",
+        border: `1px solid ${COLORS.border}`, boxShadow: "0 12px 30px rgba(35,40,64,0.12)",
+      }}>
+        <Lock size={34} color={COLORS.accent} />
+        <div style={{ fontWeight: 800, fontSize: 19, margin: "10px 0 8px" }}>{t.trialEndedTitle}</div>
+        <div style={{ fontSize: 14, color: COLORS.inkSoft, lineHeight: 1.7 }}>{t.trialEndedDesc}</div>
+        {license && license.contact && (
+          <div data-license-contact="1" style={{ marginTop: 14, background: COLORS.accentSoft, borderRadius: 8, padding: "10px 12px", fontSize: 14, fontWeight: 700 }}>
+            {license.contact}
+          </div>
+        )}
+        <Btn variant="ghost" onClick={onLogout} style={{ marginTop: 18 }}>{t.logout}</Btn>
+      </div>
+    </div>
+  );
+}
+
 export function AuthScreen({ hasAdmin, lang, setLang, t, onCreated, onLoggedIn }) {
   const isRTL = lang === "ar";
   const [mode, setMode] = useState(hasAdmin ? "login" : "setup"); // login | setup | reset | code
@@ -72,7 +97,8 @@ export function AuthScreen({ hasAdmin, lang, setLang, t, onCreated, onLoggedIn }
         const bad = checkNewPassword(password, confirm);
         if (bad) { setError(bad); return; }
         const res = await window.auth.createAdmin(username.trim(), password);
-        if (res && res.ok) {
+        if (res && res.ok && res.owner) onLoggedIn(res);
+        else if (res && res.ok) {
           if (res.recoveryCode) setPending({ code: res.recoveryCode, then: onCreated });
           else onCreated();
           if (res.recoveryCode) setMode("code");
@@ -81,8 +107,8 @@ export function AuthScreen({ hasAdmin, lang, setLang, t, onCreated, onLoggedIn }
         if (!username.trim() || !password) { setError(t.fillAllFields); return; }
         const res = await window.auth.login(username.trim(), password);
         if (res && res.ok) {
-          if (res.recoveryCode) { setPending({ code: res.recoveryCode, then: onLoggedIn }); setMode("code"); }
-          else onLoggedIn();
+          if (res.recoveryCode) { setPending({ code: res.recoveryCode, then: () => onLoggedIn(res) }); setMode("code"); }
+          else onLoggedIn(res);
         } else setError(lockedMsg(res) || t.invalidCredentials);
       } else if (mode === "reset") {
         if (!code.trim() || !password) { setError(t.fillAllFields); return; }
@@ -91,7 +117,7 @@ export function AuthScreen({ hasAdmin, lang, setLang, t, onCreated, onLoggedIn }
         const res = await window.auth.resetWithCode(code, password);
         if (res && res.ok) {
           setNotice(fill(t.passwordResetDone, { u: res.username }));
-          setPending({ code: res.recoveryCode, then: onLoggedIn });
+          setPending({ code: res.recoveryCode, then: () => onLoggedIn(res) });
           setMode("code");
         } else if (res && res.reason === "no-code") setError(t.noRecoveryCode);
         else setError(lockedMsg(res) || t.invalidCode);

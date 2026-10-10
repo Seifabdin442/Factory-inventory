@@ -7,6 +7,12 @@ contextBridge.exposeInMainWorld("auth", {
   resetWithCode: (code, newPassword) => ipcRenderer.invoke("auth-reset-with-code", { code, newPassword }),
   changePassword: (currentPassword, newPassword) => ipcRenderer.invoke("auth-change-password", { currentPassword, newPassword }),
   newRecoveryCode: (password) => ipcRenderer.invoke("auth-new-recovery-code", { password }),
+  logout: () => ipcRenderer.invoke("auth-logout"),
+});
+
+contextBridge.exposeInMainWorld("license", {
+  status: () => ipcRenderer.invoke("license-status"),
+  set: (change) => ipcRenderer.invoke("license-set", change), // works only while the owner is logged in
 });
 
 contextBridge.exposeInMainWorld("db", {

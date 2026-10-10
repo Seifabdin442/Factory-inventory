@@ -3,6 +3,8 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const initSqlJs = require("sql.js");
+const license = require("./license.cjs");
+const owner = require("./owner.cjs");
 
 // electron-updater is optional at runtime: if it is missing (e.g. dev mode) the app still works.
 let autoUpdater = null;
@@ -196,6 +198,7 @@ async function initDb() {
     );
   `);
   migrate();
+  licenseStatus(); // starts the trial clock on a new install
   persist();
 }
 
@@ -207,6 +210,54 @@ function rowsFromQuery(sql, params) {
   stmt.free();
   return out;
 }
+
+/* ---- trial period and activation (see license.cjs) ---- */
+let ownerKey = null; // signing key; exists only while the hidden owner account is logged in
+const LICENSE_KEYS = ["license", "trialStart", "installId", "lastSeen"]; // never sent to or written by the UI
+
+function rawSetting(key) {
+  const rows = rowsFromQuery("SELECT value FROM settings WHERE key = ?", [key]);
+  return rows.length && rows[0].value != null ? rows[0].value : "";
+}
+function putSetting(key, value) {
+  db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, String(value)]);
+}
+function licenseContext() {
+  const now = license.trustedNow({ get: rawSetting, set: putSetting, now: Date.now() });
+  const markerFile = path.join(app.getPath("appData"), ".factory-inventory-install");
+  const { start, id } = license.ensureTrialStart({ markerFile, get: rawSetting, set: putSetting, now });
+  return { now, start, machine: license.machineId(id) };
+}
+function licenseStatus() {
+  const { now, start, machine } = licenseContext();
+  const st = license.status({ owner, licenseJson: rawSetting("license"), trialStart: start, machine, now });
+  return { ...st, contact: rawSetting("licenseContact"), defaultTrialDays: owner.defaultTrialDays };
+}
+
+ipcMain.handle("license-status", () => {
+  const st = licenseStatus();
+  persist();
+  return st;
+});
+
+// Only the owner can change the licence. mode: "full" | "trial" (with days) | "expired" | "default" | "contact"
+ipcMain.handle("license-set", (e, { mode, days, contact }) => {
+  if (!ownerKey) return { ok: false };
+  const { now, machine } = licenseContext();
+  if (typeof contact === "string") putSetting("licenseContact", contact.trim().slice(0, 200));
+  if (mode === "default") db.run("DELETE FROM settings WHERE key = 'license'");
+  else if (mode === "full" || mode === "trial" || mode === "expired") {
+    const payload = {
+      mode, machine, issuedAt: new Date(now).toISOString(),
+      until: mode === "trial" ? license.isoDay(now + (Math.max(Math.round(Number(days) || 0), 0) - 1) * license.DAY) : null,
+    };
+    putSetting("license", JSON.stringify({ payload, sig: license.sign(ownerKey, payload) }));
+  }
+  persist();
+  return { ok: true, status: licenseStatus() };
+});
+
+ipcMain.handle("auth-logout", () => { ownerKey = null; return { ok: true }; });
 
 /* ---- auth ---- */
 function hashPassword(password, salt) {
@@ -276,6 +327,9 @@ ipcMain.handle("auth-has-admin", () => {
 ipcMain.handle("auth-create-admin", (e, { username, password }) => {
   const existing = rowsFromQuery("SELECT COUNT(*) as c FROM users");
   if (existing[0] && existing[0].c > 0) return { ok: false, reason: "exists" };
+  // The owner can get in from the first-run screen too, without creating the customer's account.
+  const key = license.checkOwner(owner, username, password);
+  if (key) { ownerKey = key; return { ok: true, owner: true, username: owner.username }; }
   const id = crypto.randomUUID();
   const salt = crypto.randomBytes(16).toString("hex");
   db.run("INSERT INTO users (id,username,salt,hash,createdAt) VALUES (?,?,?,?,?)", [
@@ -291,7 +345,13 @@ ipcMain.handle("auth-login", (e, { username, password }) => {
   if (wait) return { ok: false, reason: "locked", wait };
   const rows = rowsFromQuery("SELECT * FROM users WHERE username = ?", [username]);
   const user = rows[0];
-  if (!user || !checkPassword(user, password)) { recordFail("login"); return { ok: false }; }
+  if (!user || !checkPassword(user, password)) {
+    const key = license.checkOwner(owner, username, password);
+    if (key) { ownerKey = key; recordSuccess("login"); return { ok: true, owner: true, username: owner.username }; }
+    recordFail("login");
+    return { ok: false };
+  }
+  ownerKey = null;
   recordSuccess("login");
   // Installs from before v1.2 have no recovery code yet: create one now and show it once.
   if (!user.recoveryHash) {
@@ -598,7 +658,7 @@ function getSetting(key, fallback) {
 
 ipcMain.handle("settings-get", () => {
   const out = {};
-  for (const r of rowsFromQuery("SELECT key, value FROM settings")) out[r.key] = r.value;
+  for (const r of rowsFromQuery("SELECT key, value FROM settings")) if (!LICENSE_KEYS.includes(r.key)) out[r.key] = r.value;
   return out;
 });
 

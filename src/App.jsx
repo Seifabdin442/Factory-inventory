@@ -16,7 +16,7 @@ import { CatalogView, CatalogModal } from "./catalog.jsx";
 import { Dashboard, ReportsView } from "./dashboard.jsx";
 import { InvoicesView } from "./invoices.jsx";
 import { SettingsView, AboutModal, ShortcutsModal, ToastHost, updateText } from "./settings.jsx";
-import { AuthScreen } from "./auth.jsx";
+import { AuthScreen, TrialEndedScreen } from "./auth.jsx";
 import { computeInventory } from "./inventory.js";
 import { InventoryView, AdjustModal, StockHistoryModal } from "./stock.jsx";
 import { ProductionView, ProductionModal } from "./production.jsx";
@@ -47,6 +47,9 @@ export default function FactoryLedger() {
   const [authChecked, setAuthChecked] = useState(false);
   const [hasAdmin, setHasAdmin] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [isOwner, setIsOwner] = useState(false); // the hidden account that controls trials and activation
+  const [license, setLicense] = useState(null); // { state: "trial" | "full" | "expired", daysLeft, until, contact }
+  const refreshLicense = () => window.license && window.license.status().then((s) => s && setLicense(s)).catch(() => {});
 
   const [txModal, setTxModal] = useState(null); // { kind: 'purchase'|'sale', editId? }
   const [expenseModal, setExpenseModal] = useState(null); // { editId? }
@@ -91,6 +94,7 @@ export default function FactoryLedger() {
       try { setHasAdmin(!!(await window.auth.hasAdmin())); } catch (e) { /* ignore */ }
       // Needed before login so the login screen shows the chosen app name.
       try { const st = await window.settings.get(); if (st) setSettings(st); } catch (e) { /* ignore */ }
+      await refreshLicense();
       setAuthChecked(true);
     })();
   }, []);
@@ -117,6 +121,12 @@ export default function FactoryLedger() {
     })();
   }, [loggedIn]);
 
+  // Notice a trial running out while the app stays open.
+  useEffect(() => {
+    const timer = setInterval(refreshLicense, 60 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Automatic updates: follow the status sent by the main process.
   useEffect(() => {
     if (!window.updates) return undefined;
@@ -132,6 +142,8 @@ export default function FactoryLedger() {
   }, [updStatus.state, loggedIn]);
 
   function logout() {
+    if (window.auth.logout) window.auth.logout().catch(() => {});
+    setIsOwner(false);
     setLoggedIn(false);
     setLoaded(false);
     setParties([]);
@@ -415,9 +427,12 @@ export default function FactoryLedger() {
   if (!loggedIn) {
     return (
       <AuthScreen hasAdmin={hasAdmin} lang={lang} setLang={setLang} t={t}
-        onCreated={() => { setHasAdmin(true); setLoggedIn(true); }}
-        onLoggedIn={() => setLoggedIn(true)} />
+        onCreated={() => { setHasAdmin(true); setIsOwner(false); refreshLicense(); setLoggedIn(true); }}
+        onLoggedIn={(res) => { setIsOwner(!!(res && res.owner)); refreshLicense(); setLoggedIn(true); }} />
     );
+  }
+  if (license && license.state === "expired" && !isOwner) {
+    return <TrialEndedScreen t={t} lang={lang} license={license} onLogout={logout} />;
   }
   if (!loaded) return loadingScreen;
 
@@ -485,6 +500,11 @@ export default function FactoryLedger() {
           );
         })}
         <div style={{ flex: 1, minHeight: 12 }} />
+        {license && license.state === "trial" && (
+          <div data-trial-badge="1" style={{ background: "rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 12px", marginBottom: 6, fontSize: 12, color: "#F1E4C4", lineHeight: 1.5 }}>
+            {fill(t.trialBadge, { n: license.daysLeft })}
+          </div>
+        )}
         {(updStatus.state === "ready" || updStatus.state === "downloading") && (
           <div style={{ background: "rgba(201,151,46,0.16)", borderRadius: 10, padding: "10px 12px", marginBottom: 4 }}>
             <div style={{ fontSize: 12, color: "#F1E4C4", lineHeight: 1.5 }}>{updateText(t, updStatus)}</div>
@@ -564,7 +584,8 @@ export default function FactoryLedger() {
             settings={settings} notify={notify} onGoSettings={() => goTab("settings")} printRef={printRef} />
         )}
         {tab === "settings" && (
-          <SettingsView t={t} lang={lang} settings={settings} onSave={saveSettings} notify={notify} />
+          <SettingsView t={t} lang={lang} settings={settings} onSave={saveSettings} notify={notify}
+            isOwner={isOwner} license={license} onLicense={setLicense} />
         )}
       </div>
 
