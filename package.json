@@ -1,6 +1,6 @@
 {
-  "name": "factory-ledger",
-  "version": "1.4.0",
+  "name": "factory-inventory",
+  "version": "1.4.1",
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
@@ -29,8 +29,8 @@
     "@fontsource/jetbrains-mono": "^5.0.0"
   },
   "build": {
-    "appId": "com.factory.ledger",
-    "productName": "Factory Ledger",
+    "appId": "com.factory.inventory",
+    "productName": "Factory Inventory",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -63,14 +63,14 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Factory Ledger",
+      "shortcutName": "Factory Inventory",
       "runAfterFinish": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "uninstallDisplayName": "Factory Ledger"
+      "uninstallDisplayName": "Factory Inventory"
     },
     "copyright": "Copyright © 2026",
-    "artifactName": "Factory-Ledger-Setup-${version}.${ext}",
+    "artifactName": "Factory-Inventory-Setup-${version}.${ext}",
     "publish": [
       {
         "provider": "github",
@@ -80,6 +80,6 @@
       }
     ]
   },
-  "description": "Factory Ledger — purchases, production, inventory, sales and client balances for a clothing factory",
-  "author": "Factory Ledger"
+  "description": "Factory Inventory — purchases, production, inventory, sales and client balances for a clothing factory",
+  "author": "Factory Inventory"
 }

@@ -10,10 +10,10 @@ const handlers = {};
 let ready;
 const electron = {
   app: {
-    getPath: () => dir, isPackaged: false, getVersion: () => "test", quit() {}, on() {},
+    getPath: () => dir, setPath() {}, isPackaged: false, getVersion: () => "test", quit() {}, on() {},
     whenReady: () => new Promise((r) => { ready = r; }),
   },
-  BrowserWindow: class { constructor() { this.webContents = { send() {} }; } setMenuBarVisibility() {} once() {} loadURL() {} loadFile() {} isDestroyed() { return false; } static getAllWindows() { return [1]; } },
+  BrowserWindow: class { constructor() { this.webContents = { send() {} }; } setMenuBarVisibility() {} once() {} on() {} setTitle(t) { electron.lastTitle = t; } loadURL() {} loadFile() {} isDestroyed() { return false; } static getAllWindows() { return [1]; } },
   ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
   dialog: { showErrorBox: (a, b) => { throw new Error(b); } },
   shell: {},

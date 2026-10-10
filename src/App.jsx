@@ -27,7 +27,7 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 export default function FactoryLedger() {
   const [lang, setLang] = useState("ar");
-  const t = T[lang];
+  const baseT = T[lang];
   const isRTL = lang === "ar";
   const today = todayISO();
 
@@ -38,6 +38,9 @@ export default function FactoryLedger() {
   const [adjustments, setAdjustments] = useState([]);
   const [orders, setOrders] = useState([]);
   const [settings, setSettings] = useState({});
+  // The app's name can be changed in Settings; it replaces the built-in name everywhere.
+  const customName = (settings.appName || "").trim();
+  const t = customName ? { ...baseT, appName: customName } : baseT;
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("dashboard");
 
@@ -86,6 +89,8 @@ export default function FactoryLedger() {
   useEffect(() => {
     (async () => {
       try { setHasAdmin(!!(await window.auth.hasAdmin())); } catch (e) { /* ignore */ }
+      // Needed before login so the login screen shows the chosen app name.
+      try { const st = await window.settings.get(); if (st) setSettings(st); } catch (e) { /* ignore */ }
       setAuthChecked(true);
     })();
   }, []);

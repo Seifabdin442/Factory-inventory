@@ -8,6 +8,11 @@ const initSqlJs = require("sql.js");
 let autoUpdater = null;
 try { ({ autoUpdater } = require("electron-updater")); } catch (e) { autoUpdater = null; }
 
+// This app keeps its data in its own folder, so it can be installed next to the older "Factory Ledger"
+// app without the two sharing (or overwriting) one database.
+const DEFAULT_APP_NAME = "Factory Inventory";
+app.setPath("userData", path.join(app.getPath("appData"), "factory-inventory"));
+
 let db = null;
 let mainWindow = null;
 const SCHEMA_VERSION = 4;
@@ -583,7 +588,7 @@ ipcMain.handle("db-delete-adjustment", (e, id) => {
 const SETTING_KEYS = [
   "companyNameAr", "companyNameEn", "address", "phone", "email", "taxNumber",
   "commercialRegister", "logo", "invoicePrefix", "invoiceStartNumber", "invoiceFooter",
-  "stockWarnMin", "stockBlock", "stockBlockMin",
+  "stockWarnMin", "stockBlock", "stockBlockMin", "appName",
 ];
 
 function getSetting(key, fallback) {
@@ -607,8 +612,14 @@ ipcMain.handle("settings-save", (e, values) => {
     );
   }
   persist();
+  applyWindowTitle();
   return { ok: true };
 });
+
+// The name typed in Settings is also the window's title.
+function applyWindowTitle() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle(String(getSetting("appName", DEFAULT_APP_NAME)));
+}
 
 /* ---- sequential document numbers ----
    A statement gets a permanent number the first time it is printed or saved as PDF.
@@ -764,7 +775,7 @@ function createWindow() {
     height: 820,
     minWidth: 980,
     minHeight: 640,
-    title: "Factory Ledger",
+    title: String(getSetting("appName", DEFAULT_APP_NAME)),
     backgroundColor: "#F7F5EF",
     autoHideMenuBar: true,
     show: false,
@@ -776,6 +787,7 @@ function createWindow() {
     },
   }));
   win.setMenuBarVisibility(false);
+  win.on("page-title-updated", (e) => e.preventDefault()); // keep the title above, not the page's <title>
   win.once("ready-to-show", () => win.show());
 
   const isDev = !app.isPackaged;
@@ -794,7 +806,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error("[factory-ledger] startup failed:", err);
     const { dialog } = require("electron");
-    dialog.showErrorBox("Factory Ledger failed to start", String((err && err.stack) || err));
+    dialog.showErrorBox(`${DEFAULT_APP_NAME} failed to start`, String((err && err.stack) || err));
     app.quit();
   }
 });

@@ -15,7 +15,7 @@ import { RecoveryCodeBox } from "./auth.jsx";
 const SETTINGS_DEFAULTS = {
   companyNameAr: "", companyNameEn: "", address: "", phone: "", email: "", taxNumber: "",
   commercialRegister: "", logo: "", invoicePrefix: "INV", invoiceStartNumber: "1", invoiceFooter: "",
-  stockWarnMin: "5", stockBlock: "1", stockBlockMin: "0",
+  stockWarnMin: "5", stockBlock: "1", stockBlockMin: "0", appName: "",
 };
 
 export function readLogoFile(file, maxSize = 360) {
@@ -113,6 +113,8 @@ export function SettingsView({ t, lang, settings, onSave, notify }) {
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={pickLogo} style={{ display: "none" }} />
           </div>
         </div>
+        <Input label={t.appNameLabel} value={form.appName} onChange={set("appName")} placeholder={t.appName} maxLength={40} />
+        <div style={{ fontSize: 12, color: COLORS.muted, margin: "-6px 0 14px" }}>{t.appNameHint}</div>
         <div style={grid}>
           <Input label={t.companyNameAr} value={form.companyNameAr} onChange={set("companyNameAr")} dir="rtl" />
           <Input label={t.companyNameEn} value={form.companyNameEn} onChange={set("companyNameEn")} dir="ltr" />

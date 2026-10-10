@@ -14,8 +14,8 @@ export function RecoveryCodeBox({ t, code, onDone, doneLabel }) {
     try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) { /* ignore */ }
   }
   async function saveFile() {
-    const text = `Factory Ledger — ${t.recoveryCode}\r\n\r\n${code}\r\n\r\n${new Date().toISOString().slice(0, 10)}\r\n`;
-    try { await window.files.save("factory-ledger-recovery-code.txt", new TextEncoder().encode(text), [{ name: "Text", extensions: ["txt"] }]); } catch (e) { /* ignore */ }
+    const text = `${t.appName} — ${t.recoveryCode}\r\n\r\n${code}\r\n\r\n${new Date().toISOString().slice(0, 10)}\r\n`;
+    try { await window.files.save("recovery-code.txt", new TextEncoder().encode(text), [{ name: "Text", extensions: ["txt"] }]); } catch (e) { /* ignore */ }
   }
   return (
     <div>

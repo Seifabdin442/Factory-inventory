@@ -1,7 +1,7 @@
 // All user-facing text, Arabic and English.
 export const T = {
   ar: {
-    appName: "دفتر المصنع", tagline: "المشتريات والإنتاج والمخزون والمبيعات",
+    appName: "مخزون المصنع", tagline: "المشتريات والإنتاج والمخزون والمبيعات",
     dashboard: "الرئيسية", purchases: "المشتريات", sales: "المبيعات",
     parties: "العملاء والموردون", reports: "التقارير",
     addPurchase: "إضافة مشترى", addSale: "إضافة عملية بيع", addParty: "إضافة طرف",
@@ -71,6 +71,7 @@ export const T = {
     cat_maintenance: "صيانة", cat_supplies: "مستلزمات تشغيل", cat_other: "أخرى",
     estimatedProfit: "صافي الربح التقديري", profitHint: "المبيعات − تكلفة البضاعة المباعة − مشتريات لا تدخل المخزون − المصروفات + العمولات",
     cogs: "تكلفة البضاعة المباعة",
+    appNameLabel: "اسم البرنامج", appNameHint: "يظهر في القائمة الجانبية وشاشة الدخول وعنوان النافذة. اتركه فارغًا لاستخدام الاسم الافتراضي.",
     orders: "طلبات العملاء", addOrder: "طلب عميل جديد", orderWord: "طلب", orderCharge: "طلب عميل (تكلفة + عمولة)",
     ordersDesc: "عندما تكون وسيطًا بين العميل والمصنع: العميل يدفع مالًا أو يسلّم أقمشة، المصنع ينفّذ، وأنت تأخذ عمولتك. المال والبضاعة ملك العميل — العمولة فقط هي دخلك.",
     openOrders: "طلبات مفتوحة", commissionThisMonth: "عمولات هذا الشهر", commissionIncome: "دخل العمولات", heldMoney: "أموال عملاء لديك",
@@ -150,7 +151,7 @@ export const T = {
     restartToUpdate: "إعادة التشغيل والتحديث", updateReadyToast: "تحديث جديد جاهز (الإصدار {v})",
   },
   en: {
-    appName: "Factory Ledger", tagline: "Purchases, production, stock and sales",
+    appName: "Factory Inventory", tagline: "Purchases, production, stock and sales",
     dashboard: "Dashboard", purchases: "Purchases", sales: "Sales",
     parties: "Clients & Suppliers", reports: "Reports",
     addPurchase: "Add purchase", addSale: "Add sale", addParty: "Add party",
@@ -220,6 +221,7 @@ export const T = {
     cat_maintenance: "Maintenance", cat_supplies: "Operating supplies", cat_other: "Other",
     estimatedProfit: "Estimated profit", profitHint: "Sales − cost of goods sold − purchases that don't go into stock − expenses + commission",
     cogs: "Cost of goods sold",
+    appNameLabel: "App name", appNameHint: "Shown in the sidebar, on the login screen and as the window title. Leave empty to use the default name.",
     orders: "Client orders", addOrder: "New client order", orderWord: "Order", orderCharge: "Client order (cost + commission)",
     ordersDesc: "For when you are the broker between a client and a factory: the client pays money or hands over fabric, the factory makes the products, and you keep a commission. The money and goods are the client's — only the commission is your income.",
     openOrders: "Open orders", commissionThisMonth: "Commission this month", commissionIncome: "Commission income", heldMoney: "Clients' money you hold",
