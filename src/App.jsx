@@ -26,6 +26,8 @@ import { OwnerView } from "./owner.jsx";
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+const PAGE_ORDER = ["dashboard", "purchases", "production", "sales", "orders", "inventory", "expenses", "parties", "catalog", "reports", "invoices", "settings"];
+
 export default function FactoryLedger() {
   const [lang, setLang] = useState("ar");
   const baseT = T[lang];
@@ -51,8 +53,15 @@ export default function FactoryLedger() {
   const [isOwner, setIsOwner] = useState(false); // the hidden account that controls trials and activation
   const [license, setLicense] = useState(null); // { state: "trial" | "full" | "expired", daysLeft, until, contact }
   // Pages the owner switched off for this customer are hidden. The owner always sees everything.
-  const allowed = (key) => isOwner || !license || !Array.isArray(license.modules) || license.modules.includes(key)
-    || key === "dashboard" || key === "settings";
+  // What this user may do on each page: "none" (hidden), "view" or "edit".
+  // Two things decide it: the modules the owner sold to this customer, and the user's role.
+  const [perms, setPerms] = useState(null); // the logged-in user's role; null = full access
+  const licensed = (key) => key === "dashboard" || key === "settings" || !license || !Array.isArray(license.modules) || license.modules.includes(key);
+  const level = (key) => (isOwner ? "edit" : !licensed(key) ? "none" : !perms ? "edit" : perms[key] || "none");
+  const allowed = (key) => level(key) !== "none";
+  const canEdit = (key) => level(key) === "edit";
+  const ed = (key, fn) => (canEdit(key) ? fn : undefined); // an action only "edit" users get
+  const txModule = (tx) => (tx.orderId ? "orders" : { purchase: "purchases", sale: "sales", expense: "expenses" }[tx.kind] || "parties");
   const refreshLicense = () => window.license && window.license.status().then((s) => s && setLicense(s)).catch(() => {});
 
   const [txModal, setTxModal] = useState(null); // { kind: 'purchase'|'sale', editId? }
@@ -125,7 +134,7 @@ export default function FactoryLedger() {
     })();
   }, [loggedIn]);
 
-  useEffect(() => { if (!allowed(tab)) setTab("dashboard"); }, [tab, license, isOwner]);
+  useEffect(() => { if (!allowed(tab)) setTab(PAGE_ORDER.find(allowed) || "dashboard"); }, [tab, license, isOwner, perms]);
 
   // Notice a trial running out while the app stays open.
   useEffect(() => {
@@ -150,6 +159,7 @@ export default function FactoryLedger() {
   function logout() {
     if (window.auth.logout) window.auth.logout().catch(() => {});
     setIsOwner(false);
+    setPerms(null);
     setLoggedIn(false);
     setLoaded(false);
     setParties([]);
@@ -269,6 +279,7 @@ export default function FactoryLedger() {
 
   function deleteTransaction(id) {
     const tx = transactions.find((x) => x.id === id);
+    if (tx && !canEdit(txModule(tx))) { notify(t.noPermission, "error"); return; }
     if (tx && tx.orderId) { notify(t.orderOwnedTx, "error"); return; }
     setTransactions((prev) => prev.filter((x) => x.id !== id));
     reportDelete(window.db.deleteTransaction(id));
@@ -384,6 +395,7 @@ export default function FactoryLedger() {
     setSearch("");
   }
   function openNew() {
+    if (!canEdit(PAGE_ORDER.includes(tab) && tab !== "dashboard" && tab !== "reports" && tab !== "invoices" && tab !== "settings" ? tab : "sales")) return;
     if (tab === "purchases") setTxModal({ kind: "purchase" });
     else if (tab === "expenses") setExpenseModal({});
     else if (tab === "parties") setPartyModal(true);
@@ -395,9 +407,10 @@ export default function FactoryLedger() {
   }
   function openParty(id) {
     const p = parties.find((x) => x.id === id);
-    if (p) setPartyDetail(p);
+    if (p && allowed("parties")) setPartyDetail(p);
   }
   function goAging() {
+    if (!allowed("reports")) return;
     goTab("reports");
     setTimeout(() => { const el = document.getElementById("aging"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
   }
@@ -435,8 +448,8 @@ export default function FactoryLedger() {
   if (!loggedIn) {
     return (
       <AuthScreen hasAdmin={hasAdmin} lang={lang} setLang={setLang} t={t}
-        onCreated={() => { setHasAdmin(true); setIsOwner(false); refreshLicense(); setLoggedIn(true); }}
-        onLoggedIn={(res) => { setIsOwner(!!(res && res.owner)); refreshLicense(); setLoggedIn(true); }} />
+        onCreated={() => { setHasAdmin(true); setIsOwner(false); setPerms(null); refreshLicense(); setLoggedIn(true); }}
+        onLoggedIn={(res) => { setIsOwner(!!(res && res.owner)); setPerms((res && res.permissions) || null); refreshLicense(); setLoggedIn(true); }} />
     );
   }
   if (license && license.state === "expired" && !isOwner) {
@@ -452,6 +465,7 @@ export default function FactoryLedger() {
   const editingTx = txModal && txModal.editId ? transactions.find((x) => x.id === txModal.editId) : null;
   const editingExpense = expenseModal && expenseModal.editId ? transactions.find((x) => x.id === expenseModal.editId) : null;
   const editTx = (tx) => {
+    if (!canEdit(txModule(tx))) { notify(t.noPermission, "error"); return; }
     if (tx.orderId) { setPartyDetail(null); setOrderModal({ editId: tx.orderId }); }
     else if (tx.kind === "expense") setExpenseModal({ editId: tx.id });
     else if (tx.kind === "purchase" || tx.kind === "sale") setTxModal({ kind: tx.kind, editId: tx.id });
@@ -531,7 +545,7 @@ export default function FactoryLedger() {
 
       {/* Main */}
       <div className="app-main" style={{ flex: 1, padding: 26, overflowY: "auto", height: "100vh", boxSizing: "border-box", minWidth: 0 }}>
-        {tab === "dashboard" && (
+        {tab === "dashboard" && allowed("dashboard") && (
           <Dashboard t={t} lang={lang} transactions={transactions} parties={parties} partiesWithBalance={partiesWithBalance}
             totalReceivable={totalReceivable} totalPayable={totalPayable} today={today}
             catalog={catalog} inv={inventory} settings={settings} onGoInventory={allowed("inventory") ? () => goTab("inventory") : undefined}
@@ -541,41 +555,41 @@ export default function FactoryLedger() {
           const kind = tab === "purchases" ? "purchase" : "sale";
           return (
             <TxList key={kind} t={t} lang={lang} kind={kind} transactions={transactions.filter((x) => x.kind === kind && !x.orderId)}
-              parties={parties} onAdd={() => setTxModal({ kind })}
-              onDelete={(id) => setConfirmDel({ kind: "tx", id })} onEdit={editTx}
+              parties={parties} onAdd={ed(tab, () => setTxModal({ kind }))}
+              onDelete={ed(tab, (id) => setConfirmDel({ kind: "tx", id }))} onEdit={ed(tab, editTx)}
               search={search} setSearch={setSearch} range={ranges[kind]} setRange={setRange(kind)} />
           );
         })()}
         {tab === "expenses" && (
-          <ExpensesView t={t} lang={lang} transactions={transactions} onAdd={() => setExpenseModal({})}
-            onEdit={editTx} onDelete={(id) => setConfirmDel({ kind: "tx", id })}
+          <ExpensesView t={t} lang={lang} transactions={transactions} onAdd={ed("expenses", () => setExpenseModal({}))}
+            onEdit={ed("expenses", editTx)} onDelete={ed("expenses", (id) => setConfirmDel({ kind: "tx", id }))}
             range={ranges.expense} setRange={setRange("expense")} search={search} setSearch={setSearch} />
         )}
         {tab === "production" && (
           <ProductionView t={t} lang={lang} productions={productions} catalog={catalog} inv={inventory}
-            onAdd={() => setProdModal({})} onEdit={(r) => setProdModal({ editId: r.id })}
-            onDelete={(id) => setConfirmDel({ kind: "production", id })}
+            onAdd={ed("production", () => setProdModal({}))} onEdit={ed("production", (r) => setProdModal({ editId: r.id }))}
+            onDelete={ed("production", (id) => setConfirmDel({ kind: "production", id }))}
             search={search} setSearch={setSearch} range={ranges.production} setRange={setRange("production")} />
         )}
         {tab === "orders" && (
           <OrdersView t={t} lang={lang} orders={orders} parties={parties} search={search} setSearch={setSearch}
-            onAdd={() => setOrderModal({})} onEdit={(o) => setOrderModal({ editId: o.id })}
-            onDelete={(id) => setConfirmDel({ kind: "order", id })} />
+            onAdd={ed("orders", () => setOrderModal({}))} onEdit={ed("orders", (o) => setOrderModal({ editId: o.id }))}
+            onDelete={ed("orders", (id) => setConfirmDel({ kind: "order", id }))} />
         )}
         {tab === "inventory" && (
           <InventoryView t={t} lang={lang} catalog={catalog} inv={inventory} settings={settings}
-            search={search} setSearch={setSearch} onAdjust={(c) => setAdjustModal({ item: c })}
+            search={search} setSearch={setSearch} onAdjust={ed("inventory", (c) => setAdjustModal({ item: c }))}
             onHistory={(c) => setHistoryItem(c)} onExport={exports.inventory} onGoCatalog={() => goTab("catalog")} />
         )}
         {tab === "parties" && (
           <PartiesView t={t} lang={lang} parties={partiesWithBalance}
-            onAdd={() => setPartyModal(true)} onOpen={(p) => setPartyDetail(p)}
+            onAdd={ed("parties", () => setPartyModal(true))} onOpen={(p) => setPartyDetail(p)}
             search={search} setSearch={setSearch} />
         )}
         {tab === "catalog" && (
           <CatalogView t={t} lang={lang} catalog={catalog} transactions={transactions} inv={inventory}
-            onAdd={() => setCatalogModal({})} onEdit={(c) => setCatalogModal({ edit: c })}
-            onDelete={(c) => setConfirmDel({ kind: "catalog", id: c.id })} search={search} setSearch={setSearch} />
+            onAdd={ed("catalog", () => setCatalogModal({}))} onEdit={ed("catalog", (c) => setCatalogModal({ edit: c }))}
+            onDelete={ed("catalog", (c) => setConfirmDel({ kind: "catalog", id: c.id }))} search={search} setSearch={setSearch} />
         )}
         {tab === "reports" && (
           <ReportsView t={t} lang={lang} reportMonth={reportMonth} setReportMonth={setReportMonth}
@@ -596,7 +610,7 @@ export default function FactoryLedger() {
             isOwner={isOwner} />
         )}
         {tab === "owner" && isOwner && (
-          <OwnerView t={t} notify={notify} license={license} onLicense={setLicense} modules={[
+          <OwnerView t={t} notify={notify} license={license} onLicense={setLicense} dashboardLabel={t.dashboard} settingsLabel={t.settings} modules={[
             ["purchases", t.purchases], ["production", t.production], ["sales", t.sales], ["orders", t.orders],
             ["inventory", t.inventory], ["expenses", t.expenses], ["parties", t.parties], ["catalog", t.catalog],
             ["reports", t.reports], ["invoices", t.invoicesTab],
@@ -661,7 +675,7 @@ export default function FactoryLedger() {
       {historyItem && !confirmDel && (
         <StockHistoryModal t={t} lang={lang} item={catalog.find((c) => c.id === historyItem.id) || historyItem} inv={inventory}
           settings={settings} parties={parties} onClose={() => setHistoryItem(null)}
-          onDeleteAdjustment={(id) => setConfirmDel({ kind: "adjustment", id })} />
+          onDeleteAdjustment={ed("inventory", (id) => setConfirmDel({ kind: "adjustment", id }))} />
       )}
       {partyDetail && !payModal && !txModal && !partyModal && (
         <PartyDetailModal t={t} lang={lang}
@@ -669,11 +683,14 @@ export default function FactoryLedger() {
           transactions={transactions.filter((x) => x.partyId === partyDetail.id)}
           parties={parties}
           onClose={() => setPartyDetail(null)}
-          onPay={() => setPayModal({ party: partyDetail })}
-          onDeleteTx={(id) => setConfirmDel({ kind: "tx", id })}
+          onPay={ed("parties", () => setPayModal({ party: partyDetail }))}
+          onDeleteTx={(id) => {
+            const tx = transactions.find((x) => x.id === id);
+            if (tx && !canEdit(txModule(tx))) notify(t.noPermission, "error"); else setConfirmDel({ kind: "tx", id });
+          }}
           onEditTx={editTx}
-          onDeleteParty={() => setConfirmDel({ kind: "party", id: partyDetail.id })}
-          onEditParty={() => setPartyModal({ edit: parties.find((p) => p.id === partyDetail.id) || partyDetail })}
+          onDeleteParty={ed("parties", () => setConfirmDel({ kind: "party", id: partyDetail.id }))}
+          onEditParty={ed("parties", () => setPartyModal({ edit: parties.find((p) => p.id === partyDetail.id) || partyDetail }))}
         />
       )}
       {confirmDel && (

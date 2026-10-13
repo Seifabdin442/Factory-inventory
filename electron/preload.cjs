@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("owner", {
   listUsers: () => ipcRenderer.invoke("owner-list-users"),
   saveUser: (user) => ipcRenderer.invoke("owner-save-user", user),
   deleteUser: (id) => ipcRenderer.invoke("owner-delete-user", id),
+  listRoles: () => ipcRenderer.invoke("owner-list-roles"),
+  saveRole: (role) => ipcRenderer.invoke("owner-save-role", role),
+  deleteRole: (id) => ipcRenderer.invoke("owner-delete-role", id),
 });
 
 contextBridge.exposeInMainWorld("license", {

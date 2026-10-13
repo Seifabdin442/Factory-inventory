@@ -26,7 +26,7 @@ This opens the app in a window. Close the window to quit.
 ```
 npm run dist
 ```
-This creates a single file in the `release/` folder, e.g. `Factory-Inventory-Setup-1.7.0.exe`.
+This creates a single file in the `release/` folder, e.g. `Factory-Inventory-Setup-1.8.0.exe`.
 
 **That one file is everything your client needs.** Send it to them (USB drive, WhatsApp, email, Google Drive — anything).
 They just double-click it: no options screen, no questions — it installs the app, adds a "Factory Inventory" icon to
@@ -55,7 +55,7 @@ install everything and build the `.exe` on their servers — you only use a brow
    again to confirm.
 7. Wait 3–5 minutes for it to finish (green checkmark).
 8. Click into the finished run, scroll down to **Artifacts**, and download `factory-ledger-installer`.
-   Unzip it — inside is your one file, `Factory-Inventory-Setup-1.7.0.exe`. That's what you send to your
+   Unzip it — inside is your one file, `Factory-Inventory-Setup-1.8.0.exe`. That's what you send to your
    client.
 
 You only repeat this if you change the app later. Each run is free under GitHub's free-tier minutes.
@@ -127,9 +127,17 @@ Deleting or editing that row does not remove the owner's access: the password is
     choice is part of the signed licence, so it cannot be changed by editing the database, and it is
     kept when the trial is changed or the app is activated. "Back to the default trial" also switches
     every module back on.
-  - **Users**: the customer's login accounts on that computer — add a user, set a new password for
-    one, or delete one. All users have the same access. Each user has their own recovery code and
-    changes their own password in Settings → Security.
+  - **Roles and permissions**: create roles such as "Sales clerk" or "Storekeeper". For each page a
+    role is set to **Hidden**, **View only** or **View and edit** (the dashboard, reports and invoices
+    are simply allowed or hidden, and Settings likewise). A view-only user sees the page without the
+    add, edit and delete buttons. A role cannot be deleted while users still have it.
+  - **Users**: the customer's login accounts on that computer — add a user, pick each user's **role**
+    from the list beside their name, set a new password, or delete a user. A user with "Full access"
+    (no role) can do everything except open the Owner page; the account the customer creates on first
+    launch starts that way. Each user has their own recovery code and changes their own password in
+    Settings → Security.
+  - What a user finally gets is the overlap of the two: a page must be among the customer's modules
+    **and** allowed by the user's role.
 - Activation applies to **that computer**. A licence copied to another computer is ignored there.
 - Editing the database by hand cannot extend a trial or activate the app, deleting the database does
   not restart the trial, and turning the clock back does not give time back.
@@ -262,7 +270,7 @@ No internet → nothing happens, the app works as normal.
 
 **Every time you want to send out an update**
 
-1. In `package.json`, increase `"version"` (e.g. `1.7.0` → `1.7.1`). Updates only go out when this
+1. In `package.json`, increase `"version"` (e.g. `1.8.0` → `1.8.1`). Updates only go out when this
    number goes up — the release workflow stops with a clear message if you forget.
 2. Upload the changed files to GitHub as usual and commit.
 3. **Actions** tab → **Release (auto-update)** → **Run workflow**. It builds the installer and publishes

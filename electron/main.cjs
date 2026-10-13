@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -15,9 +15,54 @@ try { ({ autoUpdater } = require("electron-updater")); } catch (e) { autoUpdater
 const DEFAULT_APP_NAME = "Factory Inventory";
 app.setPath("userData", path.join(app.getPath("appData"), "factory-inventory"));
 
+/* ---- roles and permissions ----
+   A role gives each page one of: "none" (hidden), "view" (look only) or "edit" (add, change, delete).
+   A user without a role has full access. Every request from the UI is registered through handle(), so
+   a limited user's role is enforced here as well as in the UI. */
+const PERMISSION_KEYS = ["dashboard", ...license.MODULES, "settings"];
+
+function sessionPermissions() {
+  if (ownerKey || !currentUserId) return null; // the owner, or nobody logged in yet
+  const rows = rowsFromQuery(
+    "SELECT u.roleId AS roleId, r.permissions AS permissions FROM users u LEFT JOIN roles r ON r.id = u.roleId WHERE u.id = ?", [currentUserId]);
+  if (!rows.length || !rows[0].roleId) return null;
+  try { return JSON.parse(rows[0].permissions || "{}") || {}; } catch (err) { return {}; }
+}
+
+const txModule = (tx) => (!tx ? "parties" : tx.orderId ? "orders"
+  : { purchase: "purchases", sale: "sales", expense: "expenses" }[tx.kind] || "parties");
+
+// Which page's "edit" right each change needs. A list means any one of them is enough.
+const WRITE_RULES = {
+  // A sale, purchase or order can add a new client or supplier on the fly.
+  "db-upsert-party": ["parties", "sales", "purchases", "orders"],
+  "db-delete-party": "parties",
+  "db-upsert-transaction": (tx) => txModule(tx),
+  "db-delete-transaction": (id) => txModule(rowsFromQuery("SELECT kind, orderId FROM transactions WHERE id = ?", [id])[0]),
+  "db-upsert-catalog": "catalog", "db-upsert-catalog-many": "catalog", "db-delete-catalog": "catalog",
+  "db-upsert-production": "production", "db-delete-production": "production",
+  "db-upsert-order": "orders", "db-delete-order": "orders",
+  "db-upsert-adjustment": "inventory", "db-delete-adjustment": "inventory",
+  "settings-save": "settings",
+};
+
+function handle(name, fn) {
+  ipcMain.handle(name, (e, ...args) => {
+    const rule = WRITE_RULES[name];
+    if (rule) {
+      const perms = sessionPermissions();
+      if (perms) {
+        const needed = [].concat(typeof rule === "function" ? rule(args[0]) : rule);
+        if (!needed.some((m) => perms[m] === "edit")) throw new Error("NO_PERMISSION");
+      }
+    }
+    return fn(e, ...args);
+  });
+}
+
 let db = null;
 let mainWindow = null;
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 function dbFilePath() {
   return path.join(app.getPath("userData"), "factory-ledger.sqlite");
@@ -133,6 +178,16 @@ function migrate() {
   // v5: the owner account is also kept as a row (role = 'owner') beside the customer's own account.
   if (!columnExists("users", "role")) db.run("ALTER TABLE users ADD COLUMN role TEXT");
   ensureOwnerRow();
+  // v6: roles. A user's roleId points at a role; no roleId means full access.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS roles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      permissions TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
+  `);
+  if (!columnExists("users", "roleId")) db.run("ALTER TABLE users ADD COLUMN roleId TEXT");
   db.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 
@@ -238,7 +293,7 @@ function licenseStatus() {
   return { ...st, contact: rawSetting("licenseContact"), defaultTrialDays: owner.defaultTrialDays };
 }
 
-ipcMain.handle("license-status", () => {
+handle("license-status", () => {
   const st = licenseStatus();
   persist();
   return st;
@@ -246,7 +301,7 @@ ipcMain.handle("license-status", () => {
 
 // Only the owner can change the licence.
 // mode: "full" | "trial" (start + days) | "expired" | "modules" (pages switched on) | "default" | "contact"
-ipcMain.handle("license-set", (e, { mode, days, start, contact, modules }) => {
+handle("license-set", (e, { mode, days, start, contact, modules }) => {
   if (!ownerKey) return { ok: false };
   const { now, machine } = licenseContext();
   if (typeof contact === "string") putSetting("licenseContact", contact.trim().slice(0, 200));
@@ -278,31 +333,39 @@ function trialEnd(start, days, now) {
   return license.isoDay(from + (Math.max(Math.round(Number(days) || 0), 0) - 1) * license.DAY);
 }
 
-ipcMain.handle("auth-logout", () => { ownerKey = null; currentUserId = null; return { ok: true }; });
+handle("auth-logout", () => { ownerKey = null; currentUserId = null; return { ok: true }; });
 
 /* ---- the customer's user accounts, managed by the owner ---- */
-ipcMain.handle("owner-list-users", () => {
+handle("owner-list-users", () => {
   if (!ownerKey) return [];
-  return rowsFromQuery("SELECT id, username, createdAt FROM users WHERE (role IS NULL OR role <> 'owner') ORDER BY createdAt");
+  return rowsFromQuery("SELECT id, username, createdAt, roleId FROM users WHERE (role IS NULL OR role <> 'owner') ORDER BY createdAt");
 });
 
 // New account (no id) or a new password for an existing one.
-ipcMain.handle("owner-save-user", (e, { id, username, password }) => {
+// New account (no id), or a new password and/or role for an existing one.
+handle("owner-save-user", (e, user) => {
   if (!ownerKey) return { ok: false };
-  if (String(password || "").length < 4) return { ok: false, reason: "password" };
+  const { id, username, password } = user;
+  const hasPassword = password != null && password !== "";
+  if (hasPassword && String(password).length < 4) return { ok: false, reason: "password" };
+  const roleId = user.roleId && rowsFromQuery("SELECT 1 FROM roles WHERE id = ?", [user.roleId]).length ? user.roleId : null;
   if (id) {
     if (!rowsFromQuery("SELECT 1 FROM users WHERE id = ? AND (role IS NULL OR role <> 'owner')", [id]).length) return { ok: false };
-    setPassword(id, String(password));
-    // The old recovery code goes too; the user gets a fresh one at their next login.
-    db.run("UPDATE users SET recoverySalt = NULL, recoveryHash = NULL WHERE id = ?", [id]);
+    if (hasPassword) {
+      setPassword(id, String(password));
+      // The old recovery code goes too; the user gets a fresh one at their next login.
+      db.run("UPDATE users SET recoverySalt = NULL, recoveryHash = NULL WHERE id = ?", [id]);
+    }
+    if ("roleId" in user) db.run("UPDATE users SET roleId = ? WHERE id = ?", [roleId, id]);
   } else {
+    if (!hasPassword) return { ok: false, reason: "password" };
     const name = String(username || "").trim();
     if (!name) return { ok: false };
     if (isOwnerName(name)) return { ok: false, reason: "reserved" };
     if (rowsFromQuery("SELECT 1 FROM users WHERE lower(username) = lower(?)", [name]).length) return { ok: false, reason: "taken" };
     const salt = crypto.randomBytes(16).toString("hex");
-    db.run("INSERT INTO users (id,username,salt,hash,createdAt) VALUES (?,?,?,?,?)", [
-      crypto.randomUUID(), name, salt, hashPassword(String(password), salt), new Date().toISOString(),
+    db.run("INSERT INTO users (id,username,salt,hash,createdAt,roleId) VALUES (?,?,?,?,?,?)", [
+      crypto.randomUUID(), name, salt, hashPassword(String(password), salt), new Date().toISOString(), roleId,
     ]);
     ensureOwnerRow();
   }
@@ -310,7 +373,49 @@ ipcMain.handle("owner-save-user", (e, { id, username, password }) => {
   return { ok: true };
 });
 
-ipcMain.handle("owner-delete-user", (e, id) => {
+/* ---- roles, managed by the owner ---- */
+function cleanPermissions(input) {
+  const out = {};
+  for (const key of PERMISSION_KEYS) {
+    const v = input && input[key];
+    out[key] = v === "edit" || v === "view" ? v : "none";
+  }
+  return out;
+}
+
+handle("owner-list-roles", () => {
+  if (!ownerKey) return [];
+  const counts = new Map(rowsFromQuery("SELECT roleId, COUNT(*) AS c FROM users WHERE roleId IS NOT NULL GROUP BY roleId").map((r) => [r.roleId, r.c]));
+  return rowsFromQuery("SELECT * FROM roles ORDER BY createdAt").map((r) => {
+    let permissions = {};
+    try { permissions = JSON.parse(r.permissions || "{}"); } catch (err) { permissions = {}; }
+    return { id: r.id, name: r.name, permissions: cleanPermissions(permissions), users: counts.get(r.id) || 0 };
+  });
+});
+
+handle("owner-save-role", (e, { id, name, permissions }) => {
+  if (!ownerKey) return { ok: false };
+  const label = String(name || "").trim().slice(0, 60);
+  if (!label) return { ok: false };
+  const json = JSON.stringify(cleanPermissions(permissions));
+  if (id && rowsFromQuery("SELECT 1 FROM roles WHERE id = ?", [id]).length) {
+    db.run("UPDATE roles SET name = ?, permissions = ? WHERE id = ?", [label, json, id]);
+  } else {
+    db.run("INSERT INTO roles (id,name,permissions,createdAt) VALUES (?,?,?,?)", [crypto.randomUUID(), label, json, new Date().toISOString()]);
+  }
+  persist();
+  return { ok: true };
+});
+
+handle("owner-delete-role", (e, id) => {
+  if (!ownerKey) return { ok: false };
+  if (rowsFromQuery("SELECT 1 FROM users WHERE roleId = ? LIMIT 1", [id]).length) return { ok: false, reason: "in-use" };
+  db.run("DELETE FROM roles WHERE id = ?", [id]);
+  persist();
+  return { ok: true };
+});
+
+handle("owner-delete-user", (e, id) => {
   if (!ownerKey) return { ok: false };
   db.run("DELETE FROM users WHERE id = ? AND (role IS NULL OR role <> 'owner')", [id]);
   persist();
@@ -407,12 +512,12 @@ function recordFail(kind) {
 }
 function recordSuccess(kind) { attempts[kind] = { fails: 0, until: 0 }; }
 
-ipcMain.handle("auth-has-admin", () => {
+handle("auth-has-admin", () => {
   const rows = rowsFromQuery("SELECT COUNT(*) as c FROM users WHERE role IS NULL OR role <> 'owner'");
   return rows[0] && rows[0].c > 0;
 });
 
-ipcMain.handle("auth-create-admin", (e, { username, password }) => {
+handle("auth-create-admin", (e, { username, password }) => {
   const existing = rowsFromQuery("SELECT COUNT(*) as c FROM users WHERE role IS NULL OR role <> 'owner'");
   if (existing[0] && existing[0].c > 0) return { ok: false, reason: "exists" };
   // The owner can get in from the first-run screen too, without creating the customer's account.
@@ -431,7 +536,7 @@ ipcMain.handle("auth-create-admin", (e, { username, password }) => {
   return { ok: true, recoveryCode };
 });
 
-ipcMain.handle("auth-login", (e, { username, password }) => {
+handle("auth-login", (e, { username, password }) => {
   const wait = lockedFor("login");
   if (wait) return { ok: false, reason: "locked", wait };
   const rows = rowsFromQuery("SELECT * FROM users WHERE username = ? AND (role IS NULL OR role <> 'owner')", [username]);
@@ -449,12 +554,12 @@ ipcMain.handle("auth-login", (e, { username, password }) => {
   if (!user.recoveryHash) {
     const recoveryCode = storeRecoveryCode(user.id);
     persist();
-    return { ok: true, username: user.username, recoveryCode };
+    return { ok: true, username: user.username, recoveryCode, permissions: sessionPermissions() };
   }
-  return { ok: true, username: user.username };
+  return { ok: true, username: user.username, permissions: sessionPermissions() };
 });
 
-ipcMain.handle("auth-reset-with-code", (e, { code, newPassword }) => {
+handle("auth-reset-with-code", (e, { code, newPassword }) => {
   const wait = lockedFor("reset");
   if (wait) return { ok: false, reason: "locked", wait };
   // Each account has its own code; find the one this code belongs to.
@@ -465,11 +570,13 @@ ipcMain.handle("auth-reset-with-code", (e, { code, newPassword }) => {
   recordSuccess("reset");
   setPassword(user.id, String(newPassword));
   const recoveryCode = storeRecoveryCode(user.id); // the used code stops working
+  ownerKey = null;
+  currentUserId = user.id;
   persist();
-  return { ok: true, username: user.username, recoveryCode };
+  return { ok: true, username: user.username, recoveryCode, permissions: sessionPermissions() };
 });
 
-ipcMain.handle("auth-change-password", (e, { currentPassword, newPassword }) => {
+handle("auth-change-password", (e, { currentPassword, newPassword }) => {
   const user = loggedInUser();
   if (!user || !checkPassword(user, currentPassword)) return { ok: false };
   setPassword(user.id, String(newPassword));
@@ -477,7 +584,7 @@ ipcMain.handle("auth-change-password", (e, { currentPassword, newPassword }) => 
   return { ok: true };
 });
 
-ipcMain.handle("auth-new-recovery-code", (e, { password }) => {
+handle("auth-new-recovery-code", (e, { password }) => {
   const user = loggedInUser();
   if (!user || !checkPassword(user, password)) return { ok: false };
   const recoveryCode = storeRecoveryCode(user.id);
@@ -486,9 +593,9 @@ ipcMain.handle("auth-new-recovery-code", (e, { password }) => {
 });
 
 /* ---- parties ---- */
-ipcMain.handle("db-get-parties", () => rowsFromQuery("SELECT * FROM parties ORDER BY name"));
+handle("db-get-parties", () => rowsFromQuery("SELECT * FROM parties ORDER BY name"));
 
-ipcMain.handle("db-upsert-party", (e, party) => {
+handle("db-upsert-party", (e, party) => {
   db.run(
     `INSERT INTO parties (id,name,type,phone) VALUES (?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, phone=excluded.phone`,
@@ -498,7 +605,7 @@ ipcMain.handle("db-upsert-party", (e, party) => {
   return party;
 });
 
-ipcMain.handle("db-delete-party", (e, id) => {
+handle("db-delete-party", (e, id) => {
   db.run("DELETE FROM transactions WHERE orderId IN (SELECT id FROM orders WHERE clientId = ?)", [id]);
   db.run("DELETE FROM orders WHERE clientId = ?", [id]);
   db.run("DELETE FROM transaction_items WHERE txId IN (SELECT id FROM transactions WHERE partyId = ?)", [id]);
@@ -509,7 +616,7 @@ ipcMain.handle("db-delete-party", (e, id) => {
 });
 
 /* ---- transactions ---- */
-ipcMain.handle("db-get-transactions", () => {
+handle("db-get-transactions", () => {
   const txs = rowsFromQuery("SELECT * FROM transactions ORDER BY date DESC");
   const byTx = new Map();
   for (const it of rowsFromQuery("SELECT * FROM transaction_items ORDER BY txId, position")) {
@@ -520,7 +627,7 @@ ipcMain.handle("db-get-transactions", () => {
   return txs;
 });
 
-ipcMain.handle("db-upsert-transaction", (e, tx) => {
+handle("db-upsert-transaction", (e, tx) => {
   db.run("BEGIN");
   try {
     db.run(
@@ -550,7 +657,7 @@ ipcMain.handle("db-upsert-transaction", (e, tx) => {
   return tx;
 });
 
-ipcMain.handle("db-delete-transaction", (e, id) => {
+handle("db-delete-transaction", (e, id) => {
   db.run("DELETE FROM transaction_items WHERE txId = ?", [id]);
   db.run("DELETE FROM transactions WHERE id = ?", [id]);
   persist();
@@ -558,7 +665,7 @@ ipcMain.handle("db-delete-transaction", (e, id) => {
 });
 
 /* ---- item / fabric catalog ---- */
-ipcMain.handle("db-get-catalog", () => rowsFromQuery("SELECT * FROM catalog_items ORDER BY name"));
+handle("db-get-catalog", () => rowsFromQuery("SELECT * FROM catalog_items ORDER BY name"));
 
 const CATALOG_UPSERT = `INSERT INTO catalog_items (id,name,unit,salePrice,purchasePrice,notes,type,size,color,minStock,trackStock)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)
@@ -573,14 +680,14 @@ function catalogParams(item) {
     item.trackStock === 0 || item.trackStock === false ? 0 : 1];
 }
 
-ipcMain.handle("db-upsert-catalog", (e, item) => {
+handle("db-upsert-catalog", (e, item) => {
   db.run(CATALOG_UPSERT, catalogParams(item));
   persist();
   return item;
 });
 
 // Several items at once (e.g. every size and colour of a product) in one save.
-ipcMain.handle("db-upsert-catalog-many", (e, items) => {
+handle("db-upsert-catalog-many", (e, items) => {
   db.run("BEGIN");
   try {
     for (const item of items || []) db.run(CATALOG_UPSERT, catalogParams(item));
@@ -593,7 +700,7 @@ ipcMain.handle("db-upsert-catalog-many", (e, items) => {
   return { count: (items || []).length };
 });
 
-ipcMain.handle("db-delete-catalog", (e, id) => {
+handle("db-delete-catalog", (e, id) => {
   // Past entries keep their own copy of the name and price, so nothing else changes.
   if (rowsFromQuery("SELECT 1 FROM production_lines WHERE catalogId = ? LIMIT 1", [id]).length) {
     throw new Error("This item is used in a production run");
@@ -606,7 +713,7 @@ ipcMain.handle("db-delete-catalog", (e, id) => {
 });
 
 /* ---- production runs: materials in, finished products out ---- */
-ipcMain.handle("db-get-productions", () => {
+handle("db-get-productions", () => {
   const runs = rowsFromQuery("SELECT * FROM productions ORDER BY date DESC, createdAt DESC");
   const byRun = new Map();
   for (const ln of rowsFromQuery("SELECT * FROM production_lines ORDER BY productionId, position")) {
@@ -621,7 +728,7 @@ ipcMain.handle("db-get-productions", () => {
   return runs;
 });
 
-ipcMain.handle("db-upsert-production", (e, run) => {
+handle("db-upsert-production", (e, run) => {
   db.run("BEGIN");
   try {
     db.run(
@@ -656,7 +763,7 @@ ipcMain.handle("db-upsert-production", (e, run) => {
   return run;
 });
 
-ipcMain.handle("db-delete-production", (e, id) => {
+handle("db-delete-production", (e, id) => {
   db.run("DELETE FROM production_lines WHERE productionId = ?", [id]);
   db.run("DELETE FROM productions WHERE id = ?", [id]);
   persist();
@@ -666,7 +773,7 @@ ipcMain.handle("db-delete-production", (e, id) => {
 /* ---- client orders: products made for a client by a factory, for a commission ----
    The products, client fabric, costs and payments of an order are kept together as JSON in `data`.
    `txs` are the ledger entries worked out from the order; they are replaced as a set on every save. */
-ipcMain.handle("db-get-orders", () =>
+handle("db-get-orders", () =>
   rowsFromQuery("SELECT * FROM orders ORDER BY date DESC, createdAt DESC").map((o) => {
     let data = {};
     try { data = JSON.parse(o.data || "{}"); } catch (err) { data = {}; }
@@ -676,7 +783,7 @@ ipcMain.handle("db-get-orders", () =>
     };
   }));
 
-ipcMain.handle("db-upsert-order", (e, { order, txs }) => {
+handle("db-upsert-order", (e, { order, txs }) => {
   db.run("BEGIN");
   try {
     db.run(
@@ -709,7 +816,7 @@ ipcMain.handle("db-upsert-order", (e, { order, txs }) => {
   return { id: order.id };
 });
 
-ipcMain.handle("db-delete-order", (e, id) => {
+handle("db-delete-order", (e, id) => {
   db.run("DELETE FROM transactions WHERE orderId = ?", [id]);
   db.run("DELETE FROM orders WHERE id = ?", [id]);
   persist();
@@ -717,9 +824,9 @@ ipcMain.handle("db-delete-order", (e, id) => {
 });
 
 /* ---- stock adjustments: opening stock, waste, count corrections ---- */
-ipcMain.handle("db-get-adjustments", () => rowsFromQuery("SELECT * FROM stock_adjustments ORDER BY date DESC, createdAt DESC"));
+handle("db-get-adjustments", () => rowsFromQuery("SELECT * FROM stock_adjustments ORDER BY date DESC, createdAt DESC"));
 
-ipcMain.handle("db-upsert-adjustment", (e, a) => {
+handle("db-upsert-adjustment", (e, a) => {
   db.run(
     `INSERT INTO stock_adjustments (id,date,catalogId,quantity,unitCost,reason,notes,createdAt) VALUES (?,?,?,?,?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET date=excluded.date, catalogId=excluded.catalogId, quantity=excluded.quantity,
@@ -731,7 +838,7 @@ ipcMain.handle("db-upsert-adjustment", (e, a) => {
   return a;
 });
 
-ipcMain.handle("db-delete-adjustment", (e, id) => {
+handle("db-delete-adjustment", (e, id) => {
   db.run("DELETE FROM stock_adjustments WHERE id = ?", [id]);
   persist();
   return { id };
@@ -749,13 +856,13 @@ function getSetting(key, fallback) {
   return rows.length && rows[0].value != null && rows[0].value !== "" ? rows[0].value : fallback;
 }
 
-ipcMain.handle("settings-get", () => {
+handle("settings-get", () => {
   const out = {};
   for (const r of rowsFromQuery("SELECT key, value FROM settings")) if (!LICENSE_KEYS.includes(r.key)) out[r.key] = r.value;
   return out;
 });
 
-ipcMain.handle("settings-save", (e, values) => {
+handle("settings-save", (e, values) => {
   for (const key of SETTING_KEYS) {
     if (!values || !(key in values)) continue;
     const v = values[key] == null ? "" : String(values[key]);
@@ -800,13 +907,13 @@ function nextNumber() {
   return { number, year, seq };
 }
 
-ipcMain.handle("doc-peek", (e, params) => {
+handle("doc-peek", (e, params) => {
   const existing = findIssued(params);
   if (existing) return { number: existing, issued: true };
   return { number: nextNumber().number, issued: false };
 });
 
-ipcMain.handle("doc-issue", (e, params) => {
+handle("doc-issue", (e, params) => {
   const existing = findIssued(params);
   if (existing) return { number: existing, issued: true };
   const { number, year, seq } = nextNumber();
@@ -834,7 +941,7 @@ async function askSavePath(sender, defaultName, filters) {
   return canceled || !filePath ? null : filePath;
 }
 
-ipcMain.handle("file-save-pdf", async (e, { defaultName }) => {
+handle("file-save-pdf", async (e, { defaultName }) => {
   const filePath = await askSavePath(e.sender, defaultName, [{ name: "PDF", extensions: ["pdf"] }]);
   if (!filePath) return { ok: false, canceled: true };
   const data = await e.sender.printToPDF({
@@ -852,7 +959,7 @@ ipcMain.handle("file-save-pdf", async (e, { defaultName }) => {
   return { ok: true, filePath };
 });
 
-ipcMain.handle("file-save", async (e, { defaultName, data, filters }) => {
+handle("file-save", async (e, { defaultName, data, filters }) => {
   const filePath = await askSavePath(e.sender, defaultName, filters || []);
   if (!filePath) return { ok: false, canceled: true };
   fs.writeFileSync(filePath, Buffer.from(data));
@@ -860,20 +967,20 @@ ipcMain.handle("file-save", async (e, { defaultName, data, filters }) => {
   return { ok: true, filePath };
 });
 
-ipcMain.handle("file-open", async (e, filePath) => {
+handle("file-open", async (e, filePath) => {
   if (!savedPaths.has(filePath)) return { ok: false };
   const err = await shell.openPath(filePath);
   return { ok: !err, error: err || undefined };
 });
 
 /* ---- app info ---- */
-ipcMain.handle("app-info", () => ({
+handle("app-info", () => ({
   version: app.getVersion(),
   dbPath: dbFilePath(),
   electron: process.versions.electron,
 }));
 
-ipcMain.handle("app-show-data-folder", () => {
+handle("app-show-data-folder", () => {
   shell.showItemInFolder(dbFilePath());
   return { ok: true };
 });
@@ -907,13 +1014,13 @@ function setupAutoUpdates() {
   setInterval(check, 6 * 60 * 60 * 1000);
 }
 
-ipcMain.handle("update-get-status", () => updateStatus);
-ipcMain.handle("update-check", async () => {
+handle("update-get-status", () => updateStatus);
+handle("update-check", async () => {
   if (!autoUpdater || !app.isPackaged) return { state: "unsupported" };
   try { await autoUpdater.checkForUpdates(); } catch (err) { sendUpdateStatus({ state: "error", message: String(err.message || err) }); }
   return updateStatus;
 });
-ipcMain.handle("update-install", () => {
+handle("update-install", () => {
   if (autoUpdater && updateStatus.state === "ready") {
     setImmediate(() => autoUpdater.quitAndInstall(true, true));
     return { ok: true };
@@ -954,6 +1061,9 @@ function createWindow() {
 app.whenReady().then(async () => {
   try {
     await initDb();
+    // No application menu in the installed app: it only offered developer tools, which would let
+    // someone step around trials, modules and roles.
+    if (app.isPackaged && Menu) Menu.setApplicationMenu(null);
     createWindow();
     setupAutoUpdates();
   } catch (err) {

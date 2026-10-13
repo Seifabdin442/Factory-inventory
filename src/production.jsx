@@ -70,8 +70,8 @@ export function ProductionView({ t, lang, productions, catalog, inv, onAdd, onEd
                   <div style={{ fontFamily: mono, fontWeight: 700, fontSize: 13.5, whiteSpace: "nowrap" }}>{fmtMoney(cost.total, lang)}</div>
                   <div style={{ fontSize: 11.5, color: COLORS.muted }}>{t.totalCost}</div>
                 </div>
-                <button onClick={() => onEdit(r)} title={t.edit} style={iconBtn}><Pencil size={15} /></button>
-                <button onClick={() => onDelete(r.id)} title={t.delete} style={iconBtn}><Trash2 size={15} /></button>
+                {onEdit && <button onClick={() => onEdit(r)} title={t.edit} style={iconBtn}><Pencil size={15} /></button>}
+                {onDelete && <button onClick={() => onDelete(r.id)} title={t.delete} style={iconBtn}><Trash2 size={15} /></button>}
               </div>
             );
           })}

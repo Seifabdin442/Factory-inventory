@@ -68,8 +68,8 @@ export function CatalogView({ t, lang, catalog, transactions, inv, onAdd, onEdit
                   </td>
                   <td style={{ ...td, textAlign: "center", color: COLORS.inkSoft }}>{usage.get(c.id) || 0}</td>
                   <td style={{ ...td, textAlign: "end", whiteSpace: "nowrap" }}>
-                    <button onClick={() => onEdit(c)} title={t.edit} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.muted }}><Pencil size={15} /></button>
-                    <button onClick={() => onDelete(c)} title={t.delete} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.muted }}><Trash2 size={15} /></button>
+                    {onEdit && <button onClick={() => onEdit(c)} title={t.edit} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.muted }}><Pencil size={15} /></button>}
+                    {onDelete && <button onClick={() => onDelete(c)} title={t.delete} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.muted }}><Trash2 size={15} /></button>}
                   </td>
                 </tr>
               ))}

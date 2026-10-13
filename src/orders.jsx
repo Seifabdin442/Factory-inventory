@@ -86,8 +86,8 @@ export function OrdersView({ t, lang, orders, parties, onAdd, onEdit, onDelete, 
                 </div>
                 <div style={{ fontSize: 11.5, color: COLORS.muted }}>{c.balance > 0 ? t.clientOwes : c.balance < 0 ? t.toReturn : t.settled}</div>
               </div>
-              <button onClick={() => onEdit(o)} title={t.edit} style={iconBtn}><Pencil size={15} /></button>
-              <button onClick={() => onDelete(o.id)} title={t.delete} style={iconBtn}><Trash2 size={15} /></button>
+              {onEdit && <button onClick={() => onEdit(o)} title={t.edit} style={iconBtn}><Pencil size={15} /></button>}
+              {onDelete && <button onClick={() => onDelete(o.id)} title={t.delete} style={iconBtn}><Trash2 size={15} /></button>}
             </div>
           ))}
         </div>

@@ -45,7 +45,7 @@ export function InventoryView({ t, lang, catalog, inv, settings, search, setSear
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{t.inventory}</h2>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn variant="ghost" onClick={onExport}><FileDown size={15} /> Excel</Btn>
-          <Btn variant="accent" onClick={() => onAdjust(null)} title="Ctrl+N" disabled={!rows.length && !catalog.length}>
+          <Btn variant="accent" onClick={onAdjust ? () => onAdjust(null) : undefined} title="Ctrl+N" disabled={!rows.length && !catalog.length}>
             <SlidersHorizontal size={16} /> {t.adjustStock}
           </Btn>
         </div>
@@ -109,7 +109,7 @@ export function InventoryView({ t, lang, catalog, inv, settings, search, setSear
                     </td>
                     <td style={{ ...td, textAlign: "center", fontFamily: "inherit" }}><StatusBadge t={t} status={status} /></td>
                     <td style={td}>
-                      <button onClick={() => onAdjust(c)} title={t.adjustStock} style={iconBtn}><SlidersHorizontal size={15} /></button>
+                      {onAdjust && <button onClick={() => onAdjust(c)} title={t.adjustStock} style={iconBtn}><SlidersHorizontal size={15} /></button>}
                       <button onClick={() => onHistory(c)} title={t.stockHistory} style={iconBtn}><History size={15} /></button>
                     </td>
                   </tr>
@@ -233,7 +233,7 @@ export function StockHistoryModal({ t, lang, item, inv, settings, parties, onClo
                   <td style={td}>{fmtMoney(m.unitCost, lang)}</td>
                   <td style={{ ...td, color: m.balance < 0 ? COLORS.out : COLORS.ink }}>{fmtQty(m.balance, lang)}</td>
                   <td style={td}>
-                    {m.type === "adjust" && (
+                    {m.type === "adjust" && onDeleteAdjustment && (
                       <button onClick={() => onDeleteAdjustment(m.refId)} title={t.delete} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.muted }}>
                         <Trash2 size={14} />
                       </button>

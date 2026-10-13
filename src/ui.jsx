@@ -78,7 +78,9 @@ export function Badge({ children, color, bg }) {
   );
 }
 
+// A button with no action is not drawn at all: this is how "view only" users lose Add / Edit / Delete.
 export function Btn({ children, onClick, variant = "primary", style, disabled, title }) {
+  if (onClick === undefined) return null;
   const base = {
     padding: "9px 16px", borderRadius: 8, fontSize: 14, fontWeight: 600,
     cursor: disabled ? "not-allowed" : "pointer", border: "none",

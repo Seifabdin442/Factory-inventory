@@ -61,7 +61,7 @@ Module._load = function (request, ...rest) {
   await new Promise((r) => setTimeout(r, 1500));
   const call = (name, arg) => handlers[name]({ sender: {} }, arg);
 
-  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v5.sqlite")), "backup before upgrade");
+  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v6.sqlite")), "backup before upgrade");
   let cat = call("db-get-catalog");
   assert.equal(cat.length, 1);
   assert.equal(cat[0].type, "material");
@@ -168,6 +168,58 @@ Module._load = function (request, ...rest) {
   assert.deepEqual([ms.state, ms.until, ms.modules], ["trial", defUntil, ["sales"]]);
   assert.equal(call("license-set", { mode: "full" }).status.state, "full");
 
+  // ---- roles and permissions ----
+  assert.deepEqual(call("owner-list-roles"), []);
+  assert.equal(call("owner-save-role", { name: "  ", permissions: {} }).ok, false);
+  assert.equal(call("owner-save-role", { name: "Sales clerk", permissions: { sales: "edit", catalog: "view", inventory: "view", hacked: "edit", reports: "bogus" } }).ok, true);
+  let role = call("owner-list-roles")[0];
+  assert.equal(role.name, "Sales clerk");
+  assert.deepEqual([role.permissions.sales, role.permissions.catalog, role.permissions.purchases, role.permissions.reports, role.permissions.hacked],
+    ["edit", "view", "none", "none", undefined], "unknown pages and levels are dropped");
+  assert.equal(call("owner-save-user", { username: "omar", password: "omar-pass", roleId: role.id }).ok, true);
+  assert.equal(call("owner-list-roles")[0].users, 1);
+  assert.equal(call("owner-delete-role", role.id).reason, "in-use");
+  assert.equal(call("owner-save-role", { id: role.id, name: "Sales", permissions: { ...role.permissions, expenses: "view" } }).ok, true);
+  assert.equal(call("owner-list-roles").length, 1, "editing does not create a second role");
+  const omarId = call("owner-list-users").find((u) => u.username === "omar").id;
+  call("db-upsert-party", { id: "pc", name: "Perm client", type: "client", phone: "" });
+  call("db-upsert-catalog", { id: "pitem", name: "Perm item", type: "product", trackStock: 1 });
+  call("db-upsert-transaction", { id: "ptx-buy", kind: "purchase", date: "2026-10-05", partyId: "pa", total: 5, paid: 5, items: [] });
+  call("auth-logout");
+  assert.equal(call("owner-save-role", { name: "x", permissions: {} }).ok, false, "only the owner manages roles");
+  assert.deepEqual(call("owner-list-roles"), []);
+  // the limited user: can sell and add a client while selling, nothing else
+  const omar = call("auth-login", { username: "omar", password: "omar-pass" });
+  assert.deepEqual([omar.permissions.sales, omar.permissions.catalog, omar.permissions.purchases], ["edit", "view", "none"]);
+  const sale = { id: "ptx-sale", kind: "sale", date: "2026-10-05", partyId: "pc", total: 10, paid: 10, items: [] };
+  call("db-upsert-transaction", sale);
+  call("db-upsert-party", { id: "pc2", name: "Walk-in", type: "client", phone: "" });
+  const denied = (name, arg) => assert.throws(() => call(name, arg), /NO_PERMISSION/, name);
+  denied("db-upsert-transaction", { ...sale, id: "ptx-2", kind: "purchase" });
+  denied("db-upsert-transaction", { ...sale, id: "ptx-3", kind: "expense" });
+  denied("db-delete-transaction", "ptx-buy");
+  denied("db-upsert-catalog", { id: "pitem", name: "Renamed" });
+  denied("db-delete-catalog", "pitem");
+  denied("db-delete-party", "pc");
+  denied("db-upsert-production", { id: "rr", date: "2026-10-05", inputs: [], outputs: [] });
+  denied("db-upsert-adjustment", { id: "aa", date: "2026-10-05", catalogId: "pitem", quantity: 1 });
+  denied("db-upsert-order", { order: { id: "oo", date: "2026-10-05", clientId: "pc" }, txs: [] });
+  denied("settings-save", { companyNameEn: "x" });
+  assert.ok(call("db-get-catalog").some((c) => c.id === "pitem" && c.name === "Perm item"), "reading is not blocked, and nothing was changed");
+  call("db-delete-transaction", "ptx-sale");
+  // a user with no role keeps full access; the owner always has it
+  call("auth-login", { username: "client", password: "client-pass" });
+  assert.equal(call("auth-login", { username: "client", password: "client-pass" }).permissions, null);
+  call("db-upsert-catalog", { id: "pitem", name: "Perm item 2", type: "product", trackStock: 1 });
+  call("auth-login", { username: "admin", password: TEST_OWNER_PASSWORD });
+  call("db-delete-transaction", "ptx-buy");
+  call("db-delete-catalog", "pitem");
+  call("db-delete-party", "pc"); call("db-delete-party", "pc2");
+  // moving the user to full access frees the role for deletion
+  assert.equal(call("owner-save-user", { id: omarId, roleId: null }).ok, true);
+  assert.equal(call("owner-delete-role", role.id).ok, true);
+  assert.equal(call("owner-delete-user", omarId).ok, true);
+
   // ---- owner manages the customer's users ----
   assert.deepEqual(call("owner-list-users").map((u) => u.username), ["client"], "the owner row is not listed");
   assert.equal(call("owner-save-user", { username: "ADMIN", password: "abcd" }).reason, "reserved");
@@ -261,7 +313,7 @@ Module._load = function (request, ...rest) {
 
   // reopen from disk: everything persisted with the v3 schema
   const again = new SQL.Database(fs.readFileSync(path.join(dir, "factory-ledger.sqlite")));
-  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 5);
+  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 6);
   assert.equal(again.exec("SELECT COUNT(*) FROM catalog_items")[0].values[0][0], 1);
 
   console.log("main process tests passed");
