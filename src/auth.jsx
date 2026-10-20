@@ -68,19 +68,20 @@ export function TrialEndedScreen({ t, lang, license, onLogout }) {
   );
 }
 
-export function AuthScreen({ hasAdmin, lang, setLang, t, onCreated, onLoggedIn }) {
+export function AuthScreen({ hasAdmin, lang, setLang, t, onCreated, onLoggedIn, message }) {
   const isRTL = lang === "ar";
   const [mode, setMode] = useState(hasAdmin ? "login" : "setup"); // login | setup | reset | code
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [code, setCode] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(message || "");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(null); // { code, then }
 
-  const lockedMsg = (res) => (res && res.reason === "locked" ? fill(t.tooManyAttempts, { n: res.wait }) : null);
+  const lockedMsg = (res) => (res && res.reason === "locked" ? fill(t.tooManyAttempts, { n: res.wait })
+    : res && res.reason === "blocked" ? t.userBlocked : null);
 
   function checkNewPassword(pw, pw2) {
     if (pw !== pw2) return t.passwordsMustMatch;

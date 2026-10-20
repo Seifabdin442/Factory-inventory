@@ -62,7 +62,8 @@ export default function FactoryLedger() {
   const [authChecked, setAuthChecked] = useState(false);
   const [hasAdmin, setHasAdmin] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [isOwner, setIsOwner] = useState(false); // the hidden account that controls trials and activation
+  const [isOwner, setIsOwner] = useState(false);
+  const [authMessage, setAuthMessage] = useState(""); // shown on the login screen after a forced logout // the hidden account that controls trials and activation
   const [license, setLicense] = useState(null); // { state: "trial" | "full" | "expired", daysLeft, until, contact }
   // Pages the owner switched off for this customer are hidden. The owner always sees everything.
   // What this user may do on each page: "none" (hidden), "view" or "edit".
@@ -148,6 +149,16 @@ export default function FactoryLedger() {
 
   useEffect(() => { if (!allowed(tab)) setTab(PAGE_ORDER.find(allowed) || "dashboard"); }, [tab, license, isOwner, perms]);
 
+  // The main process blocked this user (clock turned back during the trial): back to the login screen.
+  const logoutRef = useRef(null);
+  logoutRef.current = logout;
+  useEffect(() => {
+    if (!window.auth || !window.auth.onSessionEnded) return undefined;
+    return window.auth.onSessionEnded(() => logoutRef.current(T[langRef.current].userBlocked));
+  }, []);
+  const langRef = useRef(lang);
+  langRef.current = lang;
+
   // Notice a trial running out while the app stays open.
   useEffect(() => {
     const timer = setInterval(refreshLicense, 10 * 60 * 1000);
@@ -168,7 +179,8 @@ export default function FactoryLedger() {
     }
   }, [updStatus.state, loggedIn]);
 
-  function logout() {
+  function logout(message) {
+    setAuthMessage(typeof message === "string" ? message : "");
     if (window.auth.logout) window.auth.logout().catch(() => {});
     setIsOwner(false);
     setPerms(null);
@@ -459,9 +471,9 @@ export default function FactoryLedger() {
   if (!authChecked) return loadingScreen;
   if (!loggedIn) {
     return (
-      <AuthScreen hasAdmin={hasAdmin} lang={lang} setLang={setLang} t={t}
+      <AuthScreen key={authMessage} message={authMessage} hasAdmin={hasAdmin} lang={lang} setLang={setLang} t={t}
         onCreated={() => { setHasAdmin(true); setIsOwner(false); setPerms(null); refreshLicense(); setLoggedIn(true); }}
-        onLoggedIn={(res) => { setIsOwner(!!(res && res.owner)); setPerms((res && res.permissions) || null); refreshLicense(); setLoggedIn(true); }} />
+        onLoggedIn={(res) => { setAuthMessage(""); setIsOwner(!!(res && res.owner)); setPerms((res && res.permissions) || null); refreshLicense(); setLoggedIn(true); }} />
     );
   }
   if (license && license.state === "expired" && !isOwner) {

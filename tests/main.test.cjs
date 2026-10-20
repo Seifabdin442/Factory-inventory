@@ -61,7 +61,7 @@ Module._load = function (request, ...rest) {
   await new Promise((r) => setTimeout(r, 1500));
   const call = (name, arg) => handlers[name]({ sender: {} }, arg);
 
-  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v6.sqlite")), "backup before upgrade");
+  assert.ok(fs.existsSync(path.join(dir, "factory-ledger.before-v7.sqlite")), "backup before upgrade");
   let cat = call("db-get-catalog");
   assert.equal(cat.length, 1);
   assert.equal(cat[0].type, "material");
@@ -220,6 +220,50 @@ Module._load = function (request, ...rest) {
   assert.equal(call("owner-delete-role", role.id).ok, true);
   assert.equal(call("owner-delete-user", omarId).ok, true);
 
+  // ---- turning the clock back during a trial blocks the user ----
+  const realNow = Date.now;
+  try {
+    call("license-set", { mode: "trial", days: 14 });
+    call("owner-save-user", { username: "tamper", password: "tamper-pass" });
+    call("auth-logout");
+    assert.equal(call("auth-login", { username: "tamper", password: "tamper-pass" }).ok, true);
+    Date.now = () => realNow() - 3 * lic.DAY; // the customer moves the clock back 3 days
+    assert.equal(call("license-status").state, "trial");
+    assert.equal(call("auth-login", { username: "tamper", password: "tamper-pass" }).reason, "blocked", "the user is blocked");
+    assert.equal(call("auth-change-password", { currentPassword: "tamper-pass", newPassword: "x1234" }).ok, false, "the blocked session is over");
+    Date.now = () => realNow() - 60 * 1000; // a small correction (a minute) is fine
+    assert.equal(call("auth-login", { username: "client", password: "client-pass" }).ok, true, "other users are not affected by a small correction");
+    call("auth-logout");
+    // with nobody logged in, the next customer to log in is blocked
+    Date.now = () => realNow() - 5 * lic.DAY;
+    call("license-status");
+    assert.equal(call("auth-login", { username: "client", password: "client-pass" }).reason, "blocked");
+    Date.now = realNow;
+    assert.equal(call("auth-login", { username: "client", password: "client-pass" }).reason, "blocked", "stays blocked after the clock is fixed");
+    // the owner sees it and unblocks
+    call("auth-login", { username: "admin", password: TEST_OWNER_PASSWORD });
+    const clog = call("owner-clock-log");
+    assert.ok(clog.log.length >= 2 && clog.log.some((e) => e.user === "tamper"));
+    const blockedNow = call("owner-list-users").filter((u) => u.blocked).map((u) => u.username).sort();
+    assert.deepEqual(blockedNow, ["client", "tamper"]);
+    for (const u of call("owner-list-users")) call("owner-save-user", { id: u.id, blocked: false });
+    assert.equal(call("owner-clear-clock-lock").ok, true);
+    call("auth-logout");
+    assert.equal(call("auth-login", { username: "client", password: "client-pass" }).ok, true, "unblocked");
+    // a fully activated copy is not affected
+    call("auth-login", { username: "admin", password: TEST_OWNER_PASSWORD });
+    call("license-set", { mode: "full" });
+    call("auth-login", { username: "client", password: "client-pass" });
+    Date.now = () => realNow() - 10 * lic.DAY;
+    call("license-status");
+    Date.now = realNow;
+    assert.equal(call("auth-login", { username: "client", password: "client-pass" }).ok, true, "activated: no blocking");
+    call("auth-login", { username: "admin", password: TEST_OWNER_PASSWORD });
+    call("owner-delete-user", call("owner-list-users").find((u) => u.username === "tamper").id);
+  } finally {
+    Date.now = realNow;
+  }
+
   // ---- owner manages the customer's users ----
   assert.deepEqual(call("owner-list-users").map((u) => u.username), ["client"], "the owner row is not listed");
   assert.equal(call("owner-save-user", { username: "ADMIN", password: "abcd" }).reason, "reserved");
@@ -345,7 +389,7 @@ Module._load = function (request, ...rest) {
 
   // reopen from disk: everything persisted with the v3 schema
   const again = new SQL.Database(fs.readFileSync(path.join(dir, "factory-ledger.sqlite")));
-  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 6);
+  assert.equal(again.exec("PRAGMA user_version")[0].values[0][0], 7);
   assert.equal(again.exec("SELECT COUNT(*) FROM catalog_items")[0].values[0][0], 1);
 
   console.log("main process tests passed");

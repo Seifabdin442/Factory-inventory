@@ -214,6 +214,27 @@ function UserModal({ t, user, roles, onClose, onSave }) {
   );
 }
 
+/* Each time the clock was turned back during a trial. */
+function ClockLog({ t }) {
+  const [info, setInfo] = useState({ log: [], pending: false });
+  const load = () => window.owner.clockLog().then((r) => r && setInfo(r)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  if (!info.log.length && !info.pending) return null;
+  const fmt = (ms) => new Date(Number(ms)).toLocaleString();
+  return (
+    <div data-clock-log="1" style={{ background: COLORS.outSoft, borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13 }}>
+      <div style={{ fontWeight: 800, color: COLORS.out, marginBottom: 4 }}>{t.clockLogTitle}</div>
+      {info.pending && <div style={{ marginBottom: 4 }}>{t.clockLockPending}</div>}
+      {info.log.slice(0, 5).map((e, i) => (
+        <div key={i}>{fill(t.clockLogLine, { clock: fmt(e.clock), real: fmt(e.trusted), u: e.user || "—" })}</div>
+      ))}
+      <button onClick={() => window.owner.clearClockLock().then(load)} style={{ marginTop: 6, background: "none", border: "none", color: COLORS.out, fontWeight: 700, cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
+        {t.clockLogClear}
+      </button>
+    </div>
+  );
+}
+
 function UsersCard({ t, notify, roles, reloadRoles }) {
   const [users, setUsers] = useState([]);
   const [modal, setModal] = useState(null); // { user? }
@@ -229,6 +250,10 @@ function UsersCard({ t, notify, roles, reloadRoles }) {
     const res = await window.owner.saveUser({ id: u.id, roleId: roleId || null });
     if (res && res.ok) { notify(t.savedOk); load(); reloadRoles(); } else notify(t.saveFailed, "error");
   }
+  async function unblock(u) {
+    const res = await window.owner.saveUser({ id: u.id, blocked: false });
+    if (res && res.ok) { notify(t.userUnblocked); load(); } else notify(t.saveFailed, "error");
+  }
   async function remove(id) {
     const res = await window.owner.deleteUser(id);
     if (res && res.ok) { notify(t.deletedOk); load(); reloadRoles(); } else notify(t.deleteFailed, "error");
@@ -237,6 +262,7 @@ function UsersCard({ t, notify, roles, reloadRoles }) {
   const iconBtn = { background: "none", border: "none", cursor: "pointer", color: COLORS.muted, padding: 4 };
   return (
     <SettingsCard title={t.usersCard} desc={t.usersDesc}>
+      <ClockLog t={t} />
       {users.length === 0 ? (
         <div style={{ color: COLORS.muted, fontSize: 13.5, marginBottom: 12 }}>{t.noUsers}</div>
       ) : (
@@ -245,9 +271,13 @@ function UsersCard({ t, notify, roles, reloadRoles }) {
             <div key={u.id} data-user-row={u.username} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i ? `1px solid ${COLORS.border}` : "none" }}>
               <UserRound size={17} color={COLORS.inkSoft} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{u.username}</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {u.username}
+                  {u.blocked ? <span data-blocked="1" style={{ marginInlineStart: 8, fontSize: 12, fontWeight: 700, color: COLORS.out, background: COLORS.outSoft, borderRadius: 999, padding: "1px 9px" }}>{t.blockedBadge}</span> : null}
+                </div>
                 <div style={{ fontSize: 12, color: COLORS.muted }}>{t.createdOn}: {String(u.createdAt || "").slice(0, 10)}</div>
               </div>
+              {u.blocked ? <Btn variant="danger" onClick={() => unblock(u)} style={{ padding: "5px 10px", fontSize: 12.5 }}>{t.unblock}</Btn> : null}
               <select value={u.roleId || ""} onChange={(e) => changeRole(u, e.target.value)} aria-label={t.role} data-user-role={u.username}
                 style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, fontSize: 13, fontFamily: "inherit", background: COLORS.surface, maxWidth: 200 }}>
                 <option value="">{t.fullAccess}</option>

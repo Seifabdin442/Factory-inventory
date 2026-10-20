@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld("auth", {
   changePassword: (currentPassword, newPassword) => ipcRenderer.invoke("auth-change-password", { currentPassword, newPassword }),
   newRecoveryCode: (password) => ipcRenderer.invoke("auth-new-recovery-code", { password }),
   logout: () => ipcRenderer.invoke("auth-logout"),
+  // The main process ends the session itself, e.g. when the clock is turned back during a trial.
+  onSessionEnded: (callback) => {
+    const listener = (event, info) => callback(info);
+    ipcRenderer.on("session-ended", listener);
+    return () => ipcRenderer.removeListener("session-ended", listener);
+  },
 });
 
 // These answer only while the owner is logged in.
@@ -18,6 +24,8 @@ contextBridge.exposeInMainWorld("owner", {
   listRoles: () => ipcRenderer.invoke("owner-list-roles"),
   saveRole: (role) => ipcRenderer.invoke("owner-save-role", role),
   deleteRole: (id) => ipcRenderer.invoke("owner-delete-role", id),
+  clockLog: () => ipcRenderer.invoke("owner-clock-log"),
+  clearClockLock: () => ipcRenderer.invoke("owner-clear-clock-lock"),
 });
 
 contextBridge.exposeInMainWorld("license", {

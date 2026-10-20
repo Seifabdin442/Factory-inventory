@@ -154,6 +154,9 @@ function trustedNow({ get, set, now, stores = [], mono = monoNow() }) {
   const seen = Math.max(Number(get("lastSeen")) || 0, ...list.map((s) => Number((s.read() || {}).lastSeen) || 0));
   let t = Math.max(now, seen);
   if (session.base) t = Math.max(t, session.base.t + (mono - session.base.mono));
+  // How far behind the clock is compared with what this computer itself has already shown. The internet
+  // time is left out on purpose: a clock that was simply never set right is not someone cheating.
+  session.rollback = t - now;
   if (session.net) t = Math.max(t, session.net.t + (mono - session.net.mono));
   if (!session.base) session.base = { t, mono };
   if (t > (Number(get("lastSeen")) || 0)) set("lastSeen", String(t));
@@ -162,7 +165,13 @@ function trustedNow({ get, set, now, stores = [], mono = monoNow() }) {
   return t;
 }
 
-const resetSessionForTests = () => { session.base = null; session.net = null; };
+// Cheap check between full ones: how far the clock is behind the running timer right now.
+function clockRollback(now = Date.now(), mono = monoNow()) {
+  return session.base ? session.base.t + (mono - session.base.mono) - now : 0;
+}
+const lastRollback = () => session.rollback || 0;
+
+const resetSessionForTests = () => { session.base = null; session.net = null; session.rollback = 0; };
 
 const endOfDay = (isoDate) => new Date(`${isoDate}T23:59:59`).getTime();
 const isoDay = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -198,5 +207,6 @@ function status({ owner, licenseJson, trialStart, machine, now }) {
 
 module.exports = {
   deriveOwner, checkOwner, sign, verify, machineId, ensureTrialStart, trustedNow, setNetworkTime, fileStore, registryStore,
+  clockRollback, lastRollback,
   resetSessionForTests, status, validPayload, cleanModules, isoDay, DAY, MODULES,
 };

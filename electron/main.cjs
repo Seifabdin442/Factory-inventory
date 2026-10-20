@@ -62,7 +62,7 @@ function handle(name, fn) {
 
 let db = null;
 let mainWindow = null;
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 function dbFilePath() {
   return path.join(app.getPath("userData"), "factory-ledger.sqlite");
@@ -188,6 +188,8 @@ function migrate() {
     );
   `);
   if (!columnExists("users", "roleId")) db.run("ALTER TABLE users ADD COLUMN roleId TEXT");
+  // v7: a user can be blocked (set when the clock is turned back during a trial; the owner unblocks).
+  if (!columnExists("users", "blocked")) db.run("ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0");
   db.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 
@@ -272,7 +274,7 @@ function rowsFromQuery(sql, params) {
 /* ---- trial period and activation (see license.cjs) ---- */
 let ownerKey = null; // signing key; exists only while the hidden owner account is logged in
 let currentUserId = null; // the customer account that is logged in (there can be several)
-const LICENSE_KEYS = ["license", "trialStart", "installId", "lastSeen"]; // never sent to or written by the UI
+const LICENSE_KEYS = ["license", "trialStart", "installId", "lastSeen", "clockLock", "clockLog"]; // never sent to or written by the UI
 
 function rawSetting(key) {
   const rows = rowsFromQuery("SELECT value FROM settings WHERE key = ?", [key]);
@@ -323,7 +325,52 @@ async function syncNetworkTime() {
 function licenseStatus() {
   const { now, start, machine } = licenseContext();
   const st = license.status({ owner, licenseJson: rawSetting("license"), trialStart: start, machine, now });
+  if (st.state === "trial" && license.lastRollback() > CLOCK_TOLERANCE) clockTampered(now);
   return { ...st, contact: rawSetting("licenseContact"), defaultTrialDays: owner.defaultTrialDays };
+}
+
+/* ---- turning the clock back during a trial ----
+   If the computer's date is moved back by more than CLOCK_TOLERANCE while the app is on a trial, the
+   customer user who is logged in is blocked and logged out. If nobody is logged in (it was done with the
+   app closed), the next customer who logs in is blocked instead. Only the owner can unblock (Owner page).
+   Small corrections (Windows syncing its clock, time zones, daylight saving) stay well inside the margin. */
+const CLOCK_TOLERANCE = 2 * 60 * 60 * 1000;
+
+function clockTampered(trusted) {
+  const log = (() => { try { return JSON.parse(rawSetting("clockLog") || "[]"); } catch (err) { return []; } })();
+  const user = currentUserId ? rowsFromQuery("SELECT username FROM users WHERE id = ?", [currentUserId])[0] : null;
+  const last = log[log.length - 1];
+  // One entry per incident, not one per check while the clock stays wrong.
+  if (!last || Math.abs(Number(last.trusted) - trusted) > 30 * 60 * 1000 || last.user !== (user ? user.username : "")) {
+    log.push({ trusted, clock: Date.now(), user: user ? user.username : "" });
+    putSetting("clockLog", JSON.stringify(log.slice(-20)));
+  }
+  if (currentUserId) {
+    db.run("UPDATE users SET blocked = 1 WHERE id = ? AND (role IS NULL OR role <> 'owner')", [currentUserId]);
+    currentUserId = null;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("session-ended", { reason: "clock" });
+  } else if (!ownerKey) {
+    putSetting("clockLock", "1");
+  }
+}
+
+// Between the regular checks, look at the clock every minute; only a real jump back triggers a full check.
+function watchClock() {
+  if (license.clockRollback() > CLOCK_TOLERANCE) {
+    try { licenseStatus(); persist(); } catch (err) { /* next minute */ }
+  }
+}
+
+// A blocked user can't get in; a pending lock (clock turned back while nobody was logged in) blocks this user.
+function refuseIfBlocked(user) {
+  if (user.blocked) return { ok: false, reason: "blocked" };
+  if (rawSetting("clockLock") === "1") {
+    db.run("UPDATE users SET blocked = 1 WHERE id = ?", [user.id]);
+    db.run("DELETE FROM settings WHERE key = 'clockLock'");
+    persist();
+    return { ok: false, reason: "blocked" };
+  }
+  return null;
 }
 
 handle("license-status", () => {
@@ -371,7 +418,7 @@ handle("auth-logout", () => { ownerKey = null; currentUserId = null; return { ok
 /* ---- the customer's user accounts, managed by the owner ---- */
 handle("owner-list-users", () => {
   if (!ownerKey) return [];
-  return rowsFromQuery("SELECT id, username, createdAt, roleId FROM users WHERE (role IS NULL OR role <> 'owner') ORDER BY createdAt");
+  return rowsFromQuery("SELECT id, username, createdAt, roleId, blocked FROM users WHERE (role IS NULL OR role <> 'owner') ORDER BY createdAt");
 });
 
 // New account (no id) or a new password for an existing one.
@@ -390,6 +437,7 @@ handle("owner-save-user", (e, user) => {
       db.run("UPDATE users SET recoverySalt = NULL, recoveryHash = NULL WHERE id = ?", [id]);
     }
     if ("roleId" in user) db.run("UPDATE users SET roleId = ? WHERE id = ?", [roleId, id]);
+    if ("blocked" in user) db.run("UPDATE users SET blocked = ? WHERE id = ?", [user.blocked ? 1 : 0, id]);
   } else {
     if (!hasPassword) return { ok: false, reason: "password" };
     const name = String(username || "").trim();
@@ -444,6 +492,21 @@ handle("owner-delete-role", (e, id) => {
   if (!ownerKey) return { ok: false };
   if (rowsFromQuery("SELECT 1 FROM users WHERE roleId = ? LIMIT 1", [id]).length) return { ok: false, reason: "in-use" };
   db.run("DELETE FROM roles WHERE id = ?", [id]);
+  persist();
+  return { ok: true };
+});
+
+// Times the clock was turned back during a trial, newest first, and whether a lock is waiting.
+handle("owner-clock-log", () => {
+  if (!ownerKey) return { log: [], pending: false };
+  let log = [];
+  try { log = JSON.parse(rawSetting("clockLog") || "[]"); } catch (err) { log = []; }
+  return { log: log.slice().reverse(), pending: rawSetting("clockLock") === "1" };
+});
+
+handle("owner-clear-clock-lock", () => {
+  if (!ownerKey) return { ok: false };
+  db.run("DELETE FROM settings WHERE key IN ('clockLock', 'clockLog')");
   persist();
   return { ok: true };
 });
@@ -580,6 +643,8 @@ handle("auth-login", (e, { username, password }) => {
     recordFail("login");
     return { ok: false };
   }
+  const refused = refuseIfBlocked(user);
+  if (refused) return refused;
   ownerKey = null;
   currentUserId = user.id;
   recordSuccess("login");
@@ -600,6 +665,8 @@ handle("auth-reset-with-code", (e, { code, newPassword }) => {
   if (!withCode.length) return { ok: false, reason: "no-code" };
   const user = withCode.find((u) => safeEqualHex(hashPassword(normalizeCode(code), u.recoverySalt), u.recoveryHash));
   if (!user) { recordFail("reset"); return { ok: false }; }
+  const refused = refuseIfBlocked(user);
+  if (refused) return refused;
   recordSuccess("reset");
   setPassword(user.id, String(newPassword));
   const recoveryCode = storeRecoveryCode(user.id); // the used code stops working
@@ -1104,6 +1171,7 @@ app.whenReady().then(async () => {
       setInterval(syncNetworkTime, 60 * 60 * 1000);
       // Keep the remembered time moving while the app is open, even if nobody clicks anything.
       setInterval(() => { try { licenseStatus(); persist(); } catch (err) { /* next time */ } }, 10 * 60 * 1000);
+      setInterval(watchClock, 60 * 1000);
     }
   } catch (err) {
     console.error("[factory-ledger] startup failed:", err);
