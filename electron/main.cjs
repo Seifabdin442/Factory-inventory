@@ -281,11 +281,44 @@ function rawSetting(key) {
 function putSetting(key, value) {
   db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, String(value)]);
 }
+// Places outside the database that also remember the trial (see license.cjs). The registry is used by
+// the installed app only, so development and tests never touch the real one.
+let trialStores = null;
+function getTrialStores() {
+  if (!trialStores) {
+    trialStores = [
+      license.fileStore(path.join(app.getPath("appData"), ".factory-inventory-install")),
+      app.isPackaged ? license.registryStore("HKCU\\Software\\FactoryInventory") : null,
+    ].filter(Boolean);
+  }
+  return trialStores;
+}
 function licenseContext() {
-  const now = license.trustedNow({ get: rawSetting, set: putSetting, now: Date.now() });
-  const markerFile = path.join(app.getPath("appData"), ".factory-inventory-install");
-  const { start, id } = license.ensureTrialStart({ markerFile, get: rawSetting, set: putSetting, now });
+  const stores = getTrialStores();
+  const now = license.trustedNow({ get: rawSetting, set: putSetting, now: Date.now(), stores });
+  const { start, id } = license.ensureTrialStart({ stores, get: rawSetting, set: putSetting, now });
   return { now, start, machine: license.machineId(id) };
+}
+
+/* When the computer is online, take the time from the internet (the Date header of a well-known site),
+   so a wrong clock can't stretch the trial. Offline, nothing happens and the app works as before. */
+async function syncNetworkTime() {
+  for (const url of ["https://www.google.com/generate_204", "https://www.cloudflare.com/", "https://github.com/"]) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch(url, { method: "HEAD", signal: ctrl.signal, cache: "no-store", redirect: "manual" });
+      clearTimeout(timer);
+      const time = Date.parse(res.headers.get("date") || "");
+      if (time > 0) {
+        license.setNetworkTime(time);
+        licenseStatus();
+        persist();
+        return time;
+      }
+    } catch (err) { /* offline or blocked: try the next one */ }
+  }
+  return null;
 }
 function licenseStatus() {
   const { now, start, machine } = licenseContext();
@@ -1066,6 +1099,12 @@ app.whenReady().then(async () => {
     if (app.isPackaged && Menu) Menu.setApplicationMenu(null);
     createWindow();
     setupAutoUpdates();
+    if (app.isPackaged) {
+      syncNetworkTime();
+      setInterval(syncNetworkTime, 60 * 60 * 1000);
+      // Keep the remembered time moving while the app is open, even if nobody clicks anything.
+      setInterval(() => { try { licenseStatus(); persist(); } catch (err) { /* next time */ } }, 10 * 60 * 1000);
+    }
   } catch (err) {
     console.error("[factory-ledger] startup failed:", err);
     const { dialog } = require("electron");

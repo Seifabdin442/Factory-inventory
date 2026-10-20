@@ -74,32 +74,95 @@ function machineId(fallback) {
   return cachedMachine;
 }
 
-/* The trial's start date is kept in two places (the database and a small file outside the app's data
-   folder). The earliest one wins, so deleting the database does not restart the trial. */
-function readMarker(file) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (err) { return null; }
-}
-function writeMarker(file, marker) {
-  try { fs.writeFileSync(file, JSON.stringify(marker)); } catch (err) { /* read-only profile: the database copy still works */ }
+/* The trial's start date and the latest time seen are kept in several places: the database, a small
+   file outside the app's data folder and (in the installed app) the Windows registry. Each place is a
+   "store" with read() → { start, id, lastSeen } and write(patch). The earliest start and the latest
+   time win, so deleting or restoring the database, or editing one place, gives no extra days. */
+function fileStore(file) {
+  let cache = null;
+  return {
+    read() {
+      if (!cache) { try { cache = JSON.parse(fs.readFileSync(file, "utf8")) || {}; } catch (err) { cache = {}; } }
+      return cache;
+    },
+    write(patch) {
+      cache = { ...this.read(), ...patch };
+      try { fs.writeFileSync(file, JSON.stringify(cache)); } catch (err) { /* read-only profile: the other stores still work */ }
+    },
+  };
 }
 
-function ensureTrialStart({ markerFile, get, set, now }) {
-  const marker = readMarker(markerFile) || {};
-  const starts = [Number(get("trialStart")), Number(marker.start)].filter((n) => n > 0);
+function registryStore(keyPath) {
+  if (process.platform !== "win32") return null;
+  let cache = null;
+  const names = { start: "Start", id: "Id", lastSeen: "LastSeen" };
+  return {
+    read() {
+      if (cache) return cache;
+      cache = {};
+      try {
+        const out = execSync(`reg query "${keyPath}"`, { encoding: "utf8", windowsHide: true, timeout: 5000, stdio: ["ignore", "pipe", "ignore"] });
+        for (const [field, name] of Object.entries(names)) {
+          const m = new RegExp(`^\\s+${name}\\s+REG_SZ\\s+(.+)$`, "m").exec(out);
+          if (m) cache[field] = field === "id" ? m[1].trim() : Number(m[1].trim()) || 0;
+        }
+      } catch (err) { /* not there yet */ }
+      return cache;
+    },
+    write(patch) {
+      cache = { ...this.read(), ...patch };
+      for (const [field, value] of Object.entries(patch)) {
+        if (!value || !names[field]) continue;
+        try {
+          execSync(`reg add "${keyPath}" /v ${names[field]} /t REG_SZ /d "${String(value).replace(/"/g, "")}" /f`,
+            { windowsHide: true, timeout: 5000, stdio: "ignore" });
+        } catch (err) { /* no access: the other stores still work */ }
+      }
+    },
+  };
+}
+
+function ensureTrialStart({ stores, markerFile, get, set, now }) {
+  const list = (stores || [fileStore(markerFile)]).filter(Boolean);
+  const kept = list.map((s) => s.read() || {});
+  const starts = [Number(get("trialStart")), ...kept.map((k) => Number(k.start))].filter((n) => n > 0);
   const start = starts.length ? Math.min(...starts) : now;
-  const id = marker.id || get("installId") || crypto.randomUUID();
+  const id = kept.map((k) => k.id).find(Boolean) || get("installId") || crypto.randomUUID();
   if (Number(get("trialStart")) !== start) set("trialStart", String(start));
   if (get("installId") !== id) set("installId", id);
-  if (Number(marker.start) !== start || marker.id !== id) writeMarker(markerFile, { start, id });
+  list.forEach((s, i) => { if (Number(kept[i].start) !== start || kept[i].id !== id) s.write({ start, id }); });
   return { start, id };
 }
 
-// Turning the computer's clock back does not give time back: the latest time ever seen is remembered.
-function trustedNow({ get, set, now }) {
-  const seen = Number(get("lastSeen")) || 0;
-  if (now > seen) { set("lastSeen", String(now)); return now; }
-  return seen;
+/* What time it really is, as far as the trial is concerned. The computer's clock alone can't be
+   trusted, so the answer is the latest of:
+     - the clock;
+     - the latest time ever seen (turning the clock back gives nothing back);
+     - the time when this session started + how long the app has been running, measured with a
+       timer that does not follow the clock (so changing the date while the app is open, or setting it
+       back every morning, still lets the trial run down while the app is used);
+     - the time from the internet, when the computer is online, + the running time since. */
+const session = { base: null, net: null };
+const monoNow = () => Number(process.hrtime.bigint() / 1000000n);
+
+function setNetworkTime(time, mono = monoNow()) {
+  if (Number(time) > 0) session.net = { t: Number(time), mono };
 }
+
+function trustedNow({ get, set, now, stores = [], mono = monoNow() }) {
+  const list = stores.filter(Boolean);
+  const seen = Math.max(Number(get("lastSeen")) || 0, ...list.map((s) => Number((s.read() || {}).lastSeen) || 0));
+  let t = Math.max(now, seen);
+  if (session.base) t = Math.max(t, session.base.t + (mono - session.base.mono));
+  if (session.net) t = Math.max(t, session.net.t + (mono - session.net.mono));
+  if (!session.base) session.base = { t, mono };
+  if (t > (Number(get("lastSeen")) || 0)) set("lastSeen", String(t));
+  // The other stores only need to follow roughly; a minute is plenty and saves writes.
+  for (const s of list) if (t - (Number((s.read() || {}).lastSeen) || 0) > 60000) s.write({ lastSeen: t });
+  return t;
+}
+
+const resetSessionForTests = () => { session.base = null; session.net = null; };
 
 const endOfDay = (isoDate) => new Date(`${isoDate}T23:59:59`).getTime();
 const isoDay = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -134,5 +197,6 @@ function status({ owner, licenseJson, trialStart, machine, now }) {
 }
 
 module.exports = {
-  deriveOwner, checkOwner, sign, verify, machineId, ensureTrialStart, trustedNow, status, validPayload, cleanModules, isoDay, DAY, MODULES,
+  deriveOwner, checkOwner, sign, verify, machineId, ensureTrialStart, trustedNow, setNetworkTime, fileStore, registryStore,
+  resetSessionForTests, status, validPayload, cleanModules, isoDay, DAY, MODULES,
 };

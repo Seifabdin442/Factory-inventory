@@ -150,7 +150,7 @@ export default function FactoryLedger() {
 
   // Notice a trial running out while the app stays open.
   useEffect(() => {
-    const timer = setInterval(refreshLicense, 60 * 60 * 1000);
+    const timer = setInterval(refreshLicense, 10 * 60 * 1000);
     return () => clearInterval(timer);
   }, []);
 

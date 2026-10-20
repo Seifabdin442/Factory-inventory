@@ -278,7 +278,39 @@ Module._load = function (request, ...rest) {
   assert.equal(lic.status({ ...base, licenseJson: signed(full, other.privateKey), trialStart: now - 20 * lic.DAY }).state, "expired");
   // turning the clock back does not give time back; deleting the database does not restart the trial
   const mem = { lastSeen: String(now) };
-  assert.equal(lic.trustedNow({ get: (k) => mem[k], set: (k, v) => { mem[k] = v; }, now: now - 30 * lic.DAY }), now);
+  lic.resetSessionForTests();
+  assert.equal(lic.trustedNow({ get: (k) => mem[k], set: (k, v) => { mem[k] = v; }, now: now - 30 * lic.DAY, mono: 0 }), now);
+
+  // Setting the clock back every day used to freeze the trial. Now the time the app has been running
+  // counts, measured with a timer the clock can't change: 6 hours of use moves the trial on 6 hours.
+  lic.resetSessionForTests();
+  const day1 = Date.UTC(2026, 9, 1, 9);
+  const st1 = {};
+  const get1 = (k) => st1[k] || "", set1 = (k, v) => { st1[k] = v; };
+  assert.equal(lic.trustedNow({ get: get1, set: set1, now: day1, mono: 1000 }), day1);
+  assert.equal(lic.trustedNow({ get: get1, set: set1, now: day1 - 5 * lic.DAY, mono: 1000 + 6 * 3600000 }), day1 + 6 * 3600000,
+    "the clock moved back while the app was open");
+  // next morning the clock is set back to day 1 again: the 6 hours are remembered
+  lic.resetSessionForTests();
+  assert.equal(lic.trustedNow({ get: get1, set: set1, now: day1, mono: 5 }), day1 + 6 * 3600000);
+  assert.equal(lic.trustedNow({ get: get1, set: set1, now: day1, mono: 5 + 3 * 3600000 }), day1 + 9 * 3600000);
+  // online: the internet's time wins over a frozen clock
+  lic.setNetworkTime(day1 + 20 * lic.DAY, 10 + 3 * 3600000);
+  assert.equal(lic.trustedNow({ get: get1, set: set1, now: day1, mono: 10 + 4 * 3600000 }), day1 + 20 * lic.DAY + 3600000);
+  // the latest time is kept outside the database too: restoring an old database copy gives nothing back
+  const keep = lic.fileStore(path.join(dir, "store-test.json"));
+  lic.resetSessionForTests();
+  lic.trustedNow({ get: get1, set: set1, now: day1 + 30 * lic.DAY, stores: [keep], mono: 0 });
+  lic.resetSessionForTests();
+  const oldCopy = { lastSeen: String(day1) };
+  assert.equal(lic.trustedNow({ get: (k) => oldCopy[k] || "", set: (k, v) => { oldCopy[k] = v; }, now: day1, stores: [lic.fileStore(path.join(dir, "store-test.json"))], mono: 0 }),
+    day1 + 30 * lic.DAY);
+  // and the start date: the earliest of all stores wins
+  const sA = lic.fileStore(path.join(dir, "store-a.json")); sA.write({ start: day1, id: "x" });
+  const fresh2 = {};
+  assert.equal(lic.ensureTrialStart({ stores: [sA, lic.fileStore(path.join(dir, "store-b.json"))], get: (k) => fresh2[k] || "", set: (k, v) => { fresh2[k] = v; }, now: day1 + 50 * lic.DAY }).start, day1);
+  assert.equal(Number(lic.fileStore(path.join(dir, "store-b.json")).read().start), day1, "copied to the other stores");
+  lic.resetSessionForTests();
   const fresh = {};
   const again2 = lic.ensureTrialStart({ markerFile: path.join(dir, ".factory-inventory-install"), get: (k) => fresh[k] || "", set: (k, v) => { fresh[k] = v; }, now: now + 99 * lic.DAY });
   assert.ok(again2.start <= now + 1000, "an emptied database picks the original start date back up");
