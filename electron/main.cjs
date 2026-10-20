@@ -848,7 +848,7 @@ handle("db-delete-adjustment", (e, id) => {
 const SETTING_KEYS = [
   "companyNameAr", "companyNameEn", "address", "phone", "email", "taxNumber",
   "commercialRegister", "logo", "invoicePrefix", "invoiceStartNumber", "invoiceFooter",
-  "stockWarnMin", "stockBlock", "stockBlockMin", "appName",
+  "stockWarnMin", "stockBlock", "stockBlockMin", "appName", "labels",
 ];
 
 function getSetting(key, fallback) {

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>مخزون المصنع — شغلك كله في برنامج واحد</title>
+<meta name="description" content="برنامج مخازن وحسابات لأي مصنع أو مخزن أو محل: المخزون، تكلفة المنتج، المبيعات والمشتريات، حسابات العملاء والموردين. جرّبه ببلاش أسبوعين." />
+<!-- What Facebook / WhatsApp show when the link is shared -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="مخزون المصنع — جرّبه ببلاش أسبوعين" />
+<meta property="og:description" content="شغلك كله في برنامج واحد: مخزون، تكلفة المنتج أوتوماتيك، مبيعات ومشتريات، حسابات عملاء وموردين، وصلاحيات لكل موظف." />
+<meta property="og:image" content="https://seifabdin442.github.io/Factory-inventory/share.jpg" />
+<meta property="og:url" content="https://seifabdin442.github.io/Factory-inventory/" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #232840; --gold: #C9972E; --gold-soft: #E8C77E; --bg: #F7F5EF; --muted: #6b6f86; --green: #2F7A5C; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Cairo, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.7; }
+  .hero { background: radial-gradient(circle at 85% 0%, #3a4170 0%, #232840 50%, #171a2c 100%); color: #fff; padding: 56px 20px 70px; text-align: center; }
+  .tag { display: inline-block; background: var(--gold); color: var(--ink); font-weight: 800; padding: 4px 18px; border-radius: 999px; font-size: 15px; }
+  h1 { font-size: clamp(34px, 7vw, 60px); line-height: 1.2; margin: 18px 0 10px; font-weight: 800; }
+  h1 span { color: var(--gold-soft); }
+  .sub { font-size: clamp(17px, 3vw, 22px); color: #D5D7E3; max-width: 680px; margin: 0 auto 28px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; background: var(--gold); color: var(--ink); text-decoration: none; font-weight: 800;
+    font-size: 21px; padding: 14px 32px; border-radius: 14px; box-shadow: 0 12px 30px rgba(0,0,0,.3); }
+  .btn:hover { filter: brightness(1.06); }
+  .note { font-size: 14px; color: #B9BCD0; margin-top: 12px; }
+  .shot { max-width: 920px; margin: -40px auto 0; padding: 0 16px; }
+  .shot img { width: 100%; border-radius: 16px; border: 4px solid #fff; box-shadow: 0 24px 50px rgba(35,40,64,.25); display: block; }
+  section { max-width: 980px; margin: 0 auto; padding: 48px 16px 8px; }
+  h2 { font-size: 28px; margin: 0 0 18px; text-align: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .card { background: #fff; border: 1px solid #E3DFD3; border-radius: 14px; padding: 18px 20px; }
+  .card b { display: block; font-size: 18px; margin-bottom: 4px; }
+  .card span { color: var(--muted); font-size: 15px; }
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .steps li { background: #fff; border: 1px solid #E3DFD3; border-radius: 12px; padding: 12px 16px 12px 16px; position: relative; padding-right: 58px; }
+  .steps li::before { counter-increment: s; content: counter(s); position: absolute; right: 16px; top: 12px; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--ink); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .warn { background: #FFF6E3; border: 1px solid #F1E4C4; border-radius: 12px; padding: 12px 16px; font-size: 15px; margin-top: 14px; }
+  .end { text-align: center; padding: 48px 16px 60px; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 0 16px 30px; }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <div class="tag">لأي مصنع أو مخزن أو محل 📦</div>
+    <h1>شغلك كله في <span>برنامج واحد</span></h1>
+    <div class="sub">مخزون، تكلفة المنتج، مبيعات ومشتريات، حسابات العملاء والموردين… تختار الأقسام اللي محتاجها والبرنامج يتظبط على مقاس شغلك.</div>
+    <a class="btn" id="download" href="https://github.com/Seifabdin442/Factory-inventory/releases/latest">⬇️ حمّل البرنامج وجرّبه ببلاش</a>
+    <div class="note" id="dl-note">ويندوز · شغال من غير نت · تجربة مجانية أسبوعين كاملين</div>
+  </div>
+
+  <div class="shot"><img src="inventory.jpg" alt="شاشة المخزون في البرنامج" /></div>
+
+  <section>
+    <h2>البرنامج بيعمل إيه؟</h2>
+    <div class="grid">
+      <div class="card"><b>📦 مخزون بأي وحدة</b><span>قطعة، متر، كيلو، كرتونة… وبالمقاس واللون كمان، مع قيمة المخزون لحظة بلحظة.</span></div>
+      <div class="card"><b>🧮 تكلفة المنتج أوتوماتيك</b><span>تكتب الخامات اللي اتصرفت والمصنعية، والبرنامج يحسبلك تكلفة الوحدة وربحها.</span></div>
+      <div class="card"><b>💰 ربحك الحقيقي</b><span>المبيعات ناقص تكلفة اللي اتباع فعلاً، مش أرقام تقريبية.</span></div>
+      <div class="card"><b>🔔 تنبيه قبل ما الصنف يخلص</b><span>ومنع البيع لو الرصيد مش كفاية، وانت تحدد الحدود.</span></div>
+      <div class="card"><b>🧾 مبيعات ومشتريات ومصروفات</b><span>وكشوف حساب تطبعها أو تحفظها PDF، وتقارير Excel جاهزة.</span></div>
+      <div class="card"><b>🤝 حسابات العملاء والموردين</b><span>مين عليه كام ومن إمتى، وأعمار الديون.</span></div>
+      <div class="card"><b>🔐 صلاحيات لكل موظف</b><span>كل واحد يشوف شغله بس: مبيعات، مخزن، أو عرض فقط.</span></div>
+      <div class="card"><b>⚙️ على مقاس شغلك</b><span>تختار الأقسام اللي تحتاجها، وتغيّر أسماء الحقول (مثلًا «الخامات» ← «قطع الغيار»).</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>التحميل والتجربة</h2>
+    <ol class="steps">
+      <li>اضغط زرار التحميل ونزّل ملف البرنامج.</li>
+      <li>افتح الملف، والبرنامج هيتسطّب ويفتح لوحده.</li>
+      <li>اعمل اسم مستخدم وكلمة سر، وابدأ شغل على طول — <b>أسبوعين ببلاش بكل المميزات</b>.</li>
+      <li>عجبك؟ كلّمنا ونفعّلهولك.</li>
+    </ol>
+    <div class="warn">⚠️ لو ويندوز ظهرلك رسالة «Windows protected your PC» اضغط <b>More info</b> وبعدين <b>Run anyway</b> — ده طبيعي في البرامج الجديدة.</div>
+  </section>
+
+  <div class="end">
+    <a class="btn" href="#" onclick="document.getElementById('download').click(); return false;">⬇️ حمّل البرنامج دلوقتي</a>
+  </div>
+  <footer>مخزون المصنع · Factory Inventory</footer>
+
+<script>
+  // Point the button straight at the newest installer, so one click downloads it.
+  fetch("https://api.github.com/repos/Seifabdin442/Factory-inventory/releases/latest")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((rel) => {
+      if (!rel) return;
+      const exe = (rel.assets || []).find((a) => /\.exe$/i.test(a.name));
+      if (!exe) return;
+      document.getElementById("download").href = exe.browser_download_url;
+      const mb = Math.round(exe.size / 1e6);
+      document.getElementById("dl-note").textContent = `الإصدار ${String(rel.tag_name || "").replace(/^v/, "")} · ${mb} ميجا · ويندوز · تجربة مجانية أسبوعين`;
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>

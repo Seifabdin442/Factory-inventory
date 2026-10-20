@@ -26,6 +26,17 @@ import { OwnerView } from "./owner.jsx";
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+function withWording(base, labelsJson, lang, appName) {
+  let labels = {};
+  try { labels = (JSON.parse(labelsJson || "{}") || {})[lang] || {}; } catch (e) { labels = {}; }
+  const out = { ...base };
+  for (const [key, value] of Object.entries(labels)) {
+    if (typeof value === "string" && value.trim() && key in base) out[key] = value.trim();
+  }
+  if (appName) out.appName = appName;
+  return out;
+}
+
 const PAGE_ORDER = ["dashboard", "purchases", "production", "sales", "orders", "inventory", "expenses", "parties", "catalog", "reports", "invoices", "settings"];
 
 export default function FactoryLedger() {
@@ -42,8 +53,9 @@ export default function FactoryLedger() {
   const [orders, setOrders] = useState([]);
   const [settings, setSettings] = useState({});
   // The app's name can be changed in Settings; it replaces the built-in name everywhere.
+  // Names typed in Settings → Wording replace the built-in ones (per language), so the app fits any business.
   const customName = (settings.appName || "").trim();
-  const t = customName ? { ...baseT, appName: customName } : baseT;
+  const t = withWording(baseT, settings.labels, lang, customName);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("dashboard");
 
@@ -606,7 +618,7 @@ export default function FactoryLedger() {
             settings={settings} notify={notify} onGoSettings={() => goTab("settings")} printRef={printRef} />
         )}
         {tab === "settings" && (
-          <SettingsView t={t} lang={lang} settings={settings} onSave={saveSettings} notify={notify}
+          <SettingsView t={t} baseT={baseT} lang={lang} settings={settings} onSave={saveSettings} notify={notify}
             isOwner={isOwner} />
         )}
         {tab === "owner" && isOwner && (

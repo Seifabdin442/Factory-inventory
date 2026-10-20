@@ -49,7 +49,43 @@ export function SettingsCard({ title, desc, children }) {
   );
 }
 
-export function SettingsView({ t, lang, settings, onSave, notify, isOwner }) {
+// The words a business is most likely to call something else. Each one can be renamed in Settings → Wording.
+export const WORDING_KEYS = [
+  "production", "catalog", "materials", "materialType", "products", "productType", "tailoringCost",
+  "pieces", "costPerPiece", "size", "sizes", "color", "colors", "orders", "parties", "client", "supplier",
+];
+
+function WordingCard({ t, baseT, lang, settings, onSave }) {
+  const parse = () => { try { return JSON.parse(settings.labels || "{}") || {}; } catch (e) { return {}; } };
+  const [values, setValues] = useState(() => ({ ...(parse()[lang] || {}) }));
+  const [saving, setSaving] = useState(false);
+  React.useEffect(() => { setValues({ ...(parse()[lang] || {}) }); }, [lang, settings.labels]);
+  async function save(next) {
+    setSaving(true);
+    const all = parse();
+    const clean = {};
+    for (const k of WORDING_KEYS) if ((next[k] || "").trim()) clean[k] = next[k].trim().slice(0, 40);
+    all[lang] = clean;
+    await onSave({ labels: JSON.stringify(all) });
+    setSaving(false);
+  }
+  return (
+    <SettingsCard title={t.wordingCard} desc={t.wordingDesc}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", columnGap: 14 }}>
+        {WORDING_KEYS.map((k) => (
+          <Input key={k} label={baseT[k]} value={values[k] || ""} placeholder={baseT[k]} maxLength={40}
+            data-wording={k} onChange={(e) => setValues((v) => ({ ...v, [k]: e.target.value }))} />
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Btn variant="accent" disabled={saving} onClick={() => save(values)}><CheckCircle2 size={16} /> {t.saveSettings}</Btn>
+        <Btn variant="ghost" disabled={saving} onClick={() => { setValues({}); save({}); }}>{t.resetWording}</Btn>
+      </div>
+    </SettingsCard>
+  );
+}
+
+export function SettingsView({ t, baseT, lang, settings, onSave, notify, isOwner }) {
   const [form, setForm] = useState(() => ({ ...SETTINGS_DEFAULTS, ...settings }));
   const [saving, setSaving] = useState(false);
   const fileRef = React.useRef(null);
@@ -157,6 +193,7 @@ export function SettingsView({ t, lang, settings, onSave, notify, isOwner }) {
         <Btn variant="accent" onClick={save} disabled={saving}><CheckCircle2 size={16} /> {t.saveSettings}</Btn>
       </div>
 
+      <WordingCard t={t} baseT={baseT || t} lang={lang} settings={settings} onSave={onSave} />
       {!isOwner && <SecurityCard t={t} notify={notify} />}
     </div>
   );
