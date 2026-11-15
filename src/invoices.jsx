@@ -100,7 +100,7 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
   const docNumber = docInfo ? docInfo.number : "—";
   // Dark enough to stay readable on office laser printers, which wash out light greys.
   const paperInk = "#000000";
-  const paperMuted = "#333333";
+  const paperMuted = "#000000";
   const paperLine = "#000000";
   const paperRule = "#9A9A9A";
   // Arabic digits are not in JetBrains Mono, so they fell back to a thin system font on paper.
@@ -190,11 +190,11 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
             <div style={{ textAlign: endAlign, flexShrink: 0 }}>
               <div style={{ fontWeight: 800, fontSize: 21, textTransform: "uppercase", letterSpacing: 1, lineHeight: 1.2 }}>{t.statementOfAccount}</div>
               <div style={{ fontSize: 12.5, marginTop: 6 }}>
-                <span style={{ color: paperMuted }}>{t.docNumber}: </span>
+                <span style={{ color: paperMuted, fontWeight: 600 }}>{t.docNumber}: </span>
                 <b style={{ fontFamily: "'JetBrains Mono', monospace" }}>{docNumber}</b>
               </div>
               <div style={{ fontSize: 12.5 }}>
-                <span style={{ color: paperMuted }}>{t.generatedOn}: </span><b>{todayISO()}</b>
+                <span style={{ color: paperMuted, fontWeight: 600 }}>{t.generatedOn}: </span><b>{todayISO()}</b>
               </div>
             </div>
           </div>
@@ -234,7 +234,7 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
                 </thead>
                 <tbody>
                   <tr style={{ borderBottom: `1px solid ${paperRule}`, background: "#F6F6F6" }}>
-                    <td colSpan={4} style={{ padding: "7px 8px", fontStyle: "italic", color: paperMuted }}>{t.openingBalance}</td>
+                    <td colSpan={4} style={{ padding: "7px 8px", fontWeight: 700, color: paperMuted }}>{t.openingBalance}</td>
                     <td style={{ ...tdNum, fontWeight: 700 }}>{fmtMoney(Math.abs(openingBalance), lang)}</td>
                   </tr>
                   {ledgerRows.map((r, i) => (
@@ -256,15 +256,15 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
             <table style={{ borderCollapse: "collapse", fontSize: 13, minWidth: 280 }}>
               <tbody>
                 <tr>
-                  <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted }}>{t.openingBalance}</td>
+                  <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted, fontWeight: 600 }}>{t.openingBalance}</td>
                   <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: numFont, fontWeight: 600 }}>{fmtMoney(Math.abs(openingBalance), lang)}</td>
                 </tr>
                 <tr>
-                  <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted }}>{t.totalDebit}</td>
+                  <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted, fontWeight: 600 }}>{t.totalDebit}</td>
                   <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: numFont, fontWeight: 600 }}>{fmtMoney(totalDebit, lang)}</td>
                 </tr>
                 <tr>
-                  <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted }}>{t.totalCredit}</td>
+                  <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted, fontWeight: 600 }}>{t.totalCredit}</td>
                   <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: numFont, fontWeight: 600 }}>{fmtMoney(totalCredit, lang)}</td>
                 </tr>
                 <tr style={{ borderTop: `2px solid ${paperLine}` }}>
@@ -274,7 +274,7 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
                   </td>
                 </tr>
                 <tr>
-                  <td colSpan={2} style={{ paddingTop: 2, textAlign: endAlign, fontSize: 11.5, color: paperMuted }}>
+                  <td colSpan={2} style={{ paddingTop: 2, textAlign: endAlign, fontSize: 12, fontWeight: 600, color: paperMuted }}>
                     {closingBalance > 0 ? t.theyOweYou : closingBalance < 0 ? t.youOweThem : t.settled}
                   </td>
                 </tr>
@@ -286,12 +286,12 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
           <div className="keep-together">
             <div style={{ display: "flex", justifyContent: "space-between", gap: 40, marginTop: 50 }}>
               <div style={{ flex: 1, textAlign: "center" }}>
-                <div style={{ borderTop: `1px solid ${paperInk}`, paddingTop: 6, fontSize: 12, color: paperMuted }}>
+                <div style={{ borderTop: `1.5px solid ${paperInk}`, paddingTop: 6, fontSize: 13.5, fontWeight: 700, color: paperMuted }}>
                   {company.name}
                 </div>
               </div>
               <div style={{ flex: 1, textAlign: "center" }}>
-                <div style={{ borderTop: `1px solid ${paperInk}`, paddingTop: 6, fontSize: 12, color: paperMuted }}>
+                <div style={{ borderTop: `1.5px solid ${paperInk}`, paddingTop: 6, fontSize: 13.5, fontWeight: 700, color: paperMuted }}>
                   {party.name}
                 </div>
               </div>
