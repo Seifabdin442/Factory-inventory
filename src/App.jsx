@@ -513,6 +513,8 @@ export default function FactoryLedger() {
             width: 100% !important; max-width: 100% !important; padding: 0 !important; margin: 0 !important;
             border: none !important; box-shadow: none !important; border-radius: 0 !important;
           }
+          /* Print the logo and shaded rows as they look on screen, and keep all text solid black. */
+          #invoice-print-area { -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000 !important; }
           #invoice-print-area tr { break-inside: avoid; }
           #invoice-print-area .keep-together { break-inside: avoid; }
           @page { size: A4; margin: 14mm 13mm 16mm; }

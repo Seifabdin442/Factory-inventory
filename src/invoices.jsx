@@ -98,15 +98,18 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
   });
 
   const docNumber = docInfo ? docInfo.number : "—";
-  const paperInk = "#1A1A1A";
-  const paperMuted = "#666666";
-  const paperLine = "#222222";
-  const paperRule = "#DDDDDD";
+  // Dark enough to stay readable on office laser printers, which wash out light greys.
+  const paperInk = "#000000";
+  const paperMuted = "#333333";
+  const paperLine = "#000000";
+  const paperRule = "#9A9A9A";
+  // Arabic digits are not in JetBrains Mono, so they fell back to a thin system font on paper.
+  const numFont = isRTL ? "'Cairo', sans-serif" : "'JetBrains Mono', monospace";
   const startAlign = isRTL ? "right" : "left";
   const endAlign = isRTL ? "left" : "right";
-  const th = { padding: "7px 8px", textAlign: startAlign, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 800 };
+  const th = { padding: "7px 8px", textAlign: startAlign, fontSize: 12, textTransform: "uppercase", letterSpacing: isRTL ? 0 : 0.4, fontWeight: 800 };
   const thNum = { ...th, textAlign: endAlign };
-  const tdNum = { padding: "7px 8px", fontFamily: "'JetBrains Mono', monospace", textAlign: endAlign, whiteSpace: "nowrap" };
+  const tdNum = { padding: "7px 8px", fontFamily: numFont, fontWeight: 600, textAlign: endAlign, whiteSpace: "nowrap" };
 
   return (
     <div>
@@ -200,7 +203,7 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
           {/* Bill-to / details block */}
           <div style={{ display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap", marginBottom: 24 }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: paperMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: paperMuted, textTransform: "uppercase", letterSpacing: isRTL ? 0 : 0.5, marginBottom: 6 }}>
                 {party.type === "supplier" ? t.supplier : t.client}
               </div>
               <div style={{ fontWeight: 700, fontSize: 16 }}>{party.name}</div>
@@ -210,7 +213,7 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
               </div>
             </div>
             <div style={{ textAlign: endAlign, fontSize: 12.5 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: paperMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{t.period}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: paperMuted, textTransform: "uppercase", letterSpacing: isRTL ? 0 : 0.5, marginBottom: 6 }}>{t.period}</div>
               <b>{dateFrom} → {dateTo}</b>
             </div>
           </div>
@@ -219,7 +222,7 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
             ledgerRows.length === 0 ? (
               <div style={{ padding: 20, textAlign: "center", color: paperMuted, border: `1px solid ${paperRule}`, marginBottom: 20 }}>{t.noTxInPeriod}</div>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, marginBottom: 20 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, marginBottom: 20 }}>
                 <thead>
                   <tr style={{ borderBottom: `2px solid ${paperLine}` }}>
                     <th style={th}>{t.date}</th>
@@ -254,19 +257,19 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
               <tbody>
                 <tr>
                   <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted }}>{t.openingBalance}</td>
-                  <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: "'JetBrains Mono', monospace" }}>{fmtMoney(Math.abs(openingBalance), lang)}</td>
+                  <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: numFont, fontWeight: 600 }}>{fmtMoney(Math.abs(openingBalance), lang)}</td>
                 </tr>
                 <tr>
                   <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted }}>{t.totalDebit}</td>
-                  <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: "'JetBrains Mono', monospace" }}>{fmtMoney(totalDebit, lang)}</td>
+                  <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: numFont, fontWeight: 600 }}>{fmtMoney(totalDebit, lang)}</td>
                 </tr>
                 <tr>
                   <td style={{ padding: "5px 0", paddingInlineEnd: 18, color: paperMuted }}>{t.totalCredit}</td>
-                  <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: "'JetBrains Mono', monospace" }}>{fmtMoney(totalCredit, lang)}</td>
+                  <td style={{ padding: "5px 0", textAlign: endAlign, fontFamily: numFont, fontWeight: 600 }}>{fmtMoney(totalCredit, lang)}</td>
                 </tr>
                 <tr style={{ borderTop: `2px solid ${paperLine}` }}>
                   <td style={{ padding: "9px 0 2px", paddingInlineEnd: 18, fontWeight: 800, fontSize: 14 }}>{t.closingBalance}</td>
-                  <td style={{ padding: "9px 0 2px", textAlign: endAlign, fontWeight: 800, fontSize: 16, fontFamily: "'JetBrains Mono', monospace" }}>
+                  <td style={{ padding: "9px 0 2px", textAlign: endAlign, fontWeight: 800, fontSize: 16, fontFamily: numFont }}>
                     {fmtMoney(Math.abs(closingBalance), lang)}
                   </td>
                 </tr>
