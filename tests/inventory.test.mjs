@@ -120,6 +120,8 @@ near(clientBal, -100, "client is owed 100 back");
 near(otx.filter((x) => x.partyId === "sup").reduce((s, x) => s + balanceImpact(x), 0), -4000, "supplier is owed 4000");
 assert.equal(otx.find((x) => x.id === "o1-cost-c2").paid, 3000, "cash cost is fully paid");
 assert.ok(otx.every((x) => x.orderId === "o1"));
+const chargeNote = otx.find((x) => x.kind === "order_charge").notes;
+assert.ok(!chargeNote.includes("commission") && !chargeNote.includes("900"), "the client's statement text has no commission");
 // only the commission is income; the 9000 spent is the client's money, not own purchases
 const pt = periodTotals(otx, computeInventory({ catalog, transactions: otx, productions: [], adjustments: [] }));
 near(pt.profit, 900, "profit is the commission");

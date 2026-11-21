@@ -73,7 +73,7 @@ export function orderTransactions(o, labels) {
     txs.push({
       id: `${o.id}-charge`, kind: "order_charge", date: o.deliveredDate || o.date, partyId: o.clientId,
       description: name, quantity: calc.pieces, unitPrice: 0, total: calc.due, paid: 0,
-      notes: `${labels.order}: ${name} — ${labels.cost} ${calc.cost} + ${labels.commission} ${calc.commission}`,
+      notes: `${labels.order}: ${name}`, // this reaches the client's statement: never put the cost or commission here
       items: [], orderId: o.id, commission: calc.commission,
     });
   }

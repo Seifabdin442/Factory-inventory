@@ -304,7 +304,7 @@ export default function FactoryLedger() {
   function saveOrder(order, newClientName) {
     const full = newClientName ? { ...order, clientId: findOrCreateParty(newClientName, "client").id } : order;
     const txs = orderTransactions(full, {
-      order: t.orderWord, cost: t.orderCost, commission: t.commission,
+      order: t.orderWord,
       cost_material: t.cost_material, cost_making: t.cost_making, cost_other: t.cost_other,
     });
     setOrders((prev) => [full, ...prev.filter((o) => o.id !== full.id)]

@@ -43,11 +43,14 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
     const impact = balanceImpact(x);
     running += impact;
     const label = x.orderId && x.kind === "payment_out" ? t.refundToClient
-      : { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, order_charge: t.orderCharge, opening_balance: t.oldBalance }[x.kind];
+      : { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, order_charge: t.orderWord, opening_balance: t.oldBalance }[x.kind];
     // One line per item, e.g. "Cotton shirts (24 × EGP 85)"
     const items = txItems(x);
     const desc = (x.kind === "purchase" || x.kind === "sale") && items.length
       ? items.map((it) => `${it.description || label}${it.quantity ? ` (${it.quantity} × ${fmtMoney(it.unitPrice, lang)})` : ""}`)
+      // The client sees one total for an order. Orders saved before 1.10.1 have the commission in their
+      // notes, so the notes are never printed for this kind of entry.
+      : x.kind === "order_charge" ? [x.description ? `${t.orderWord}: ${x.description}` : label]
       : [x.notes || label];
     return {
       date: x.date, label, desc,
