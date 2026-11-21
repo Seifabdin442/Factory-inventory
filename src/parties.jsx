@@ -72,13 +72,27 @@ export function PaymentModal({ t, lang, party, editPay, onClose, onSave }) {
   );
 }
 
-export function PartyModal({ t, lang, editParty, onClose, onSave }) {
+export function PartyModal({ t, lang, editParty, opening, onClose, onSave }) {
   const [name, setName] = useState(editParty ? editParty.name : "");
   const [type, setType] = useState(editParty ? editParty.type : "client");
   const [phone, setPhone] = useState(editParty ? (editParty.phone || "") : "");
+  const [oldAmount, setOldAmount] = useState(opening ? Math.abs(opening.total) : "");
+  // Until it is chosen by hand, the side follows the type: clients usually owe you, you usually owe suppliers.
+  const [pickedSide, setPickedSide] = useState(opening ? (opening.total > 0 ? "debit" : "credit") : null);
+  const [oldDate, setOldDate] = useState(opening ? opening.date : todayISO());
+  const side = pickedSide || (type === "supplier" ? "credit" : "debit");
+  const amountOk = oldAmount === "" || Number(oldAmount) >= 0;
+  const canSave = name.trim() && amountOk;
+  const save = () => { if (canSave) onSave(name.trim(), type, phone, { amount: oldAmount, side, date: oldDate }); };
+  const sideBtn = (key, label) => (
+    <button type="button" data-old-side={key} onClick={() => setPickedSide(key)} style={{
+      flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+      border: `1px solid ${side === key ? COLORS.ink : COLORS.border}`,
+      background: side === key ? COLORS.ink : COLORS.surface, color: side === key ? "#fff" : COLORS.inkSoft,
+    }}>{label}</button>
+  );
   return (
-    <Modal title={editParty ? `${t.edit} — ${t.addParty}` : t.addParty} onClose={onClose}
-      onSubmit={() => { if (name.trim()) onSave(name.trim(), type, phone); }}>
+    <Modal title={editParty ? `${t.edit} — ${t.addParty}` : t.addParty} onClose={onClose} onSubmit={save}>
       <Input label={t.name} value={name} autoFocus onChange={(e) => setName(e.target.value)} />
       <Select label={t.type} value={type} onChange={(e) => setType(e.target.value)}>
         <option value="client">{t.clientType}</option>
@@ -86,9 +100,21 @@ export function PartyModal({ t, lang, editParty, onClose, onSave }) {
         <option value="both">{t.bothType}</option>
       </Select>
       <Input label={t.phone} value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <div style={{ background: COLORS.bg, borderRadius: 10, padding: "12px 14px 2px", marginBottom: 8 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800 }}>{t.oldBalance}</div>
+        <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 10 }}>{t.oldBalanceHint}</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          {sideBtn("debit", t.oldBalanceDebit)}
+          {sideBtn("credit", t.oldBalanceCredit)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Input label={t.paymentAmount} type="number" min="0" step="any" data-old-amount="1" value={oldAmount} onChange={(e) => setOldAmount(e.target.value)} />
+          <Input label={t.oldBalanceDate} type="date" value={oldDate} onChange={(e) => setOldDate(e.target.value)} />
+        </div>
+      </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
         <Btn variant="ghost" onClick={onClose}>{t.cancel}</Btn>
-        <Btn variant="accent" disabled={!name.trim()} onClick={() => onSave(name.trim(), type, phone)}>{t.save}</Btn>
+        <Btn variant="accent" disabled={!canSave} onClick={save}>{t.save}</Btn>
       </div>
     </Modal>
   );

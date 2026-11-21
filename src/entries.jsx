@@ -17,21 +17,23 @@ const mono = "'JetBrains Mono', monospace";
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 export function kindLabel(t, kind) {
-  return { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, expense: t.expense, order_charge: t.orderCharge }[kind];
+  return { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, expense: t.expense, order_charge: t.orderCharge, opening_balance: t.oldBalance }[kind];
 }
 
 /* ---------- one row in any list ---------- */
 export function TxRow({ tx, lang, t, last, partyName, onDelete, onEdit }) {
   const isCharge = tx.kind === "order_charge";
-  const isIn = tx.kind === "sale" || tx.kind === "payment_in" || isCharge;
+  const isOpening = tx.kind === "opening_balance";
+  const isIn = tx.kind === "sale" || tx.kind === "payment_in" || isCharge || (isOpening && tx.total > 0);
   const isExpense = tx.kind === "expense";
   const isTrade = tx.kind === "sale" || tx.kind === "purchase";
   const Icon = isExpense ? Receipt : isIn ? ArrowUpCircle : ArrowDownCircle;
   const color = isIn ? COLORS.in : COLORS.out;
-  const label = tx.orderId && tx.kind === "payment_out" ? t.refundToClient : kindLabel(t, tx.kind);
+  const label = isOpening ? `${t.oldBalance} · ${tx.total > 0 ? t.theyOweYou : t.youOweThem}`
+    : tx.orderId && tx.kind === "payment_out" ? t.refundToClient : kindLabel(t, tx.kind);
   const itemCount = tx.items ? tx.items.length : 0;
   const head = isExpense ? t["cat_" + (tx.category || "other")] : (partyName || label);
-  const amount = isTrade || isCharge ? tx.total : tx.paid;
+  const amount = isOpening ? Math.abs(tx.total) : isTrade || isCharge ? tx.total : tx.paid;
   const remaining = isTrade ? round2((tx.total || 0) - (tx.paid || 0)) : 0;
 
   return (
@@ -45,7 +47,7 @@ export function TxRow({ tx, lang, t, last, partyName, onDelete, onEdit }) {
           {head} {tx.description ? `— ${tx.description}` : tx.orderId && tx.notes ? `— ${tx.notes}` : ""}
         </div>
         <div style={{ fontSize: 12, color: COLORS.muted, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span>{tx.date} · {label}</span>
+          <span>{head === label ? tx.date : `${tx.date} · ${label}`}</span>
           {itemCount > 1 && <Badge color={COLORS.inkSoft} bg={COLORS.bg}>{itemCount} {t.itemsCount}</Badge>}
         </div>
       </div>

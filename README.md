@@ -26,7 +26,7 @@ This opens the app in a window. Close the window to quit.
 ```
 npm run dist
 ```
-This creates a single file in the `release/` folder, e.g. `Factory-Inventory-Setup-1.9.2.exe`.
+This creates a single file in the `release/` folder, e.g. `Factory-Inventory-Setup-1.10.0.exe`.
 
 **That one file is everything your client needs.** Send it to them (USB drive, WhatsApp, email, Google Drive — anything).
 They just double-click it: no options screen, no questions — it installs the app, adds a "Factory Inventory" icon to
@@ -55,7 +55,7 @@ install everything and build the `.exe` on their servers — you only use a brow
    again to confirm.
 7. Wait 3–5 minutes for it to finish (green checkmark).
 8. Click into the finished run, scroll down to **Artifacts**, and download `factory-ledger-installer`.
-   Unzip it — inside is your one file, `Factory-Inventory-Setup-1.9.2.exe`. That's what you send to your
+   Unzip it — inside is your one file, `Factory-Inventory-Setup-1.10.0.exe`. That's what you send to your
    client.
 
 You only repeat this if you change the app later. Each run is free under GitHub's free-tier minutes.
@@ -167,6 +167,13 @@ The built-in wording is neutral (materials, products, making cost), and **Settin
 each customer rename the pages and fields that matter most for their business — for example
 "Materials" → "Spare parts", "Production" → "Assembly", "Pieces" → "Units". Leaving a box empty
 brings back the default. Each language keeps its own names.
+
+## Old balances for clients and suppliers (since version 1.10)
+
+When adding or editing a client or supplier, enter an optional **old balance**: the amount, its date, and
+whether **they owe you (debit)** or **you owe them (credit)**. It counts in their balance, statement of
+account and aging report from that date, but not in sales, purchases, cash or profit. Payments reduce it
+like any other debt. Clearing the amount removes it.
 
 ## Inventory and production (new in version 1.3)
 
@@ -287,7 +294,7 @@ No internet → nothing happens, the app works as normal.
 
 **Every time you want to send out an update**
 
-1. In `package.json`, increase `"version"` (e.g. `1.9.2` → `1.9.3`). Updates only go out when this
+1. In `package.json`, increase `"version"` (e.g. `1.10.0` → `1.10.1`). Updates only go out when this
    number goes up — the release workflow stops with a clear message if you forget.
 2. Upload the changed files to GitHub as usual and commit.
 3. **Actions** tab → **Release (auto-update)** → **Run workflow**. It builds the installer and publishes

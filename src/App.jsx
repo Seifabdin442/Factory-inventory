@@ -242,10 +242,28 @@ export default function FactoryLedger() {
     return addParty(name.trim(), defaultType, "", true);
   }
 
-  function storeTransaction(record, editId) {
+  // Each client or supplier has at most one old balance. An empty amount removes it.
+  function saveOldBalance(partyId, old) {
+    const id = `opening-${partyId}`;
+    const exists = transactions.some((x) => x.id === id);
+    const amount = round2(old.amount);
+    if (!(amount > 0)) {
+      if (exists) {
+        setTransactions((prev) => prev.filter((x) => x.id !== id));
+        reportSave(window.db.deleteTransaction(id), true);
+      }
+      return;
+    }
+    storeTransaction({
+      id, kind: "opening_balance", date: old.date || todayISO(), partyId, description: "", quantity: 0, unitPrice: 0,
+      total: old.side === "credit" ? -amount : amount, paid: 0, notes: "", items: [],
+    }, exists ? id : null, true);
+  }
+
+  function storeTransaction(record, editId, silent) {
     setTransactions((prev) => (editId ? prev.map((x) => (x.id === editId ? record : x)) : [record, ...prev])
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)));
-    reportSave(window.db.upsertTransaction(record));
+    reportSave(window.db.upsertTransaction(record), silent);
   }
 
   function saveTransaction(kind, form, editId) {
@@ -491,6 +509,7 @@ export default function FactoryLedger() {
   const editTx = (tx) => {
     if (!canEdit(txModule(tx))) { notify(t.noPermission, "error"); return; }
     if (tx.orderId) { setPartyDetail(null); setOrderModal({ editId: tx.orderId }); }
+    else if (tx.kind === "opening_balance") { const p = parties.find((x) => x.id === tx.partyId); if (p) setPartyModal({ edit: p }); }
     else if (tx.kind === "expense") setExpenseModal({ editId: tx.id });
     else if (tx.kind === "purchase" || tx.kind === "sale") setTxModal({ kind: tx.kind, editId: tx.id });
     else { const p = parties.find((x) => x.id === tx.partyId); if (p) setPayModal({ party: p, editId: tx.id }); }
@@ -668,10 +687,13 @@ export default function FactoryLedger() {
       )}
       {partyModal && (
         <PartyModal t={t} lang={lang} editParty={typeof partyModal === "object" ? partyModal.edit : null}
+          opening={typeof partyModal === "object" && partyModal.edit ? transactions.find((x) => x.id === `opening-${partyModal.edit.id}`) : null}
           onClose={() => setPartyModal(false)}
-          onSave={(name, type, phone) => {
-            if (typeof partyModal === "object" && partyModal.edit) updateParty(partyModal.edit.id, name, type, phone);
-            else addParty(name, type, phone);
+          onSave={(name, type, phone, old) => {
+            let partyId;
+            if (typeof partyModal === "object" && partyModal.edit) { partyId = partyModal.edit.id; updateParty(partyId, name, type, phone); }
+            else partyId = addParty(name, type, phone).id;
+            saveOldBalance(partyId, old);
             setPartyModal(false);
           }} />
       )}

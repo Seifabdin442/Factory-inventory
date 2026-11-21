@@ -359,6 +359,16 @@ Module._load = function (request, ...rest) {
   const again2 = lic.ensureTrialStart({ markerFile: path.join(dir, ".factory-inventory-install"), get: (k) => fresh[k] || "", set: (k, v) => { fresh[k] = v; }, now: now + 99 * lic.DAY });
   assert.ok(again2.start <= now + 1000, "an emptied database picks the original start date back up");
 
+  // an old balance is stored signed, can be replaced, and goes with its party
+  call("db-upsert-party", { id: "ob", name: "Old balance", type: "supplier", phone: "" });
+  call("db-upsert-transaction", { id: "opening-ob", kind: "opening_balance", date: "2026-01-01", partyId: "ob", total: -750.5, paid: 0, items: [] });
+  assert.equal(call("db-get-transactions").find((x) => x.id === "opening-ob").total, -750.5);
+  call("db-upsert-transaction", { id: "opening-ob", kind: "opening_balance", date: "2026-01-01", partyId: "ob", total: 900, paid: 0, items: [] });
+  assert.equal(call("db-get-transactions").filter((x) => x.id === "opening-ob").length, 1);
+  assert.equal(call("db-get-transactions").find((x) => x.id === "opening-ob").total, 900);
+  call("db-delete-party", "ob");
+  assert.equal(call("db-get-transactions").some((x) => x.id === "opening-ob"), false);
+
   // client orders: the order and its ledger entries are saved and replaced together
   call("db-upsert-party", { id: "cl", name: "Client", type: "client", phone: "" });
   const order = { id: "ord1", date: "2026-10-04", clientId: "cl", title: "500 tees", status: "open", commissionMode: "cost_pct",

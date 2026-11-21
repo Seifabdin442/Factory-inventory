@@ -38,6 +38,7 @@ export function balanceImpact(t) {
   if (t.kind === "payment_in") return -t.paid;
   if (t.kind === "payment_out") return t.paid;
   if (t.kind === "order_charge") return t.total; // a delivered client order: cost + commission
+  if (t.kind === "opening_balance") return Number(t.total) || 0; // old balance: + they owe you, − you owe them
   return 0; // expenses are not tied to a client/supplier balance
 }
 

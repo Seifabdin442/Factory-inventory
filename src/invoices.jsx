@@ -34,14 +34,16 @@ export function InvoicesView({ t, lang, parties, transactions, partyId, setParty
 
   const inPeriod = partyTx
     .filter((x) => x.date >= dateFrom && x.date <= dateTo)
-    .sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : 0));
+    // On the same day, an old balance comes before that day's entries.
+    .sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1
+      : (b.kind === "opening_balance" ? 1 : 0) - (a.kind === "opening_balance" ? 1 : 0)));
 
   let running = openingBalance;
   const ledgerRows = inPeriod.map((x) => {
     const impact = balanceImpact(x);
     running += impact;
     const label = x.orderId && x.kind === "payment_out" ? t.refundToClient
-      : { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, order_charge: t.orderCharge }[x.kind];
+      : { purchase: t.purchases, sale: t.sales, payment_in: t.paymentIn, payment_out: t.paymentOut, order_charge: t.orderCharge, opening_balance: t.oldBalance }[x.kind];
     // One line per item, e.g. "Cotton shirts (24 × EGP 85)"
     const items = txItems(x);
     const desc = (x.kind === "purchase" || x.kind === "sale") && items.length

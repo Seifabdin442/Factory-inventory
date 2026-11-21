@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { computeInventory, checkTake, stockStatus, inventoryTotals } from "../src/inventory.js";
-import { periodTotals } from "../src/analytics.js";
+import { periodTotals, computeAging } from "../src/analytics.js";
 import { orderCalc, orderTransactions, heldMaterials, heldFor } from "../src/orders.js";
 import { balanceImpact } from "../src/ui.jsx";
 
@@ -134,5 +134,20 @@ near(settled.filter((x) => x.partyId === "cli").reduce((s, x) => s + balanceImpa
 const held = heldMaterials([order, { id: "o2", clientId: "cli", materials: [{ name: "cotton", received: 0, used: 15, returned: 0 }] }]);
 near(heldFor(held, "cli")[0].qty, 5, "fabric held for the client");
 assert.equal(heldFor(heldMaterials([order], "o1"), "cli").length, 0);
+
+// ---- old balances on clients and suppliers ----
+const oldDebit = { id: "opening-a", kind: "opening_balance", date: "2026-01-10", partyId: "a", total: 5000, paid: 0, items: [] };
+const oldCredit = { id: "opening-b", kind: "opening_balance", date: "2026-01-10", partyId: "b", total: -3000, paid: 0, items: [] };
+near(balanceImpact(oldDebit), 5000, "old debit: they owe you");
+near(balanceImpact(oldCredit), -3000, "old credit: you owe them");
+const payA = { id: "pa", kind: "payment_in", date: "2026-02-01", partyId: "a", total: 2000, paid: 2000, items: [] };
+const oldInv = computeInventory({ catalog, transactions: [payA, oldDebit, oldCredit], productions: [], adjustments: [] });
+const oldTotals = periodTotals([oldDebit, oldCredit], oldInv);
+near(oldTotals.sales + oldTotals.purchases + oldTotals.expenses + oldTotals.moneyIn + oldTotals.moneyOut + oldTotals.profit, 0,
+  "an old balance is not a sale, purchase, cash or profit");
+const owed = computeAging([{ id: "a", name: "A" }, { id: "b", name: "B" }], [payA, oldDebit, oldCredit], "2026-06-30", "receivable");
+near(owed.totals.total, 3000, "a payment reduces the old balance");
+near(owed.rows[0].buckets[3], 3000, "the old balance ages from its own date");
+near(computeAging([{ id: "b", name: "B" }], [oldCredit], "2026-06-30", "payable").totals.total, 3000, "credit shows under payables");
 
 console.log("inventory and order tests passed");
